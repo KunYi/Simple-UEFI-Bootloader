@@ -1,5 +1,5 @@
 # Simple-UEFI-Bootloader
-A UEFI bootloader for bare-metal x86-64 applications
+A UEFI bootloader for bare-metal x86-64 applications. It's llke a much simpler version of GRUB.
 
 **Coming Soon**  
 
