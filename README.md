@@ -11,7 +11,7 @@ A simple bare-metal kernel using this bootloader will be uploaded here:
 https://github.com/KNNSpeed/Simple-Kernel/
 
 Why not upload it as-is?  
-Consider the fact that, once something is released online, it can very rapidly disseminate all over the place. If that ever were to happen here, it would be a shame if what spread were an ugly mess.  
+Consider the fact that, once something is released online, it can very rapidly disseminate all over the place. If that ever were to happen here, it would be a shame if what spread were an ugly mess. The bootloader.c file cannot be compiled without its headers, and it's just here to show that it does in fact exist.
   
 "A delayed game is eventually good, but a rushed game is forever bad."  
 -Shigeru Miyamoto  
