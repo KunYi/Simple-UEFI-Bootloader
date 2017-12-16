@@ -1,5 +1,5 @@
 # Simple-UEFI-Bootloader
-A UEFI bootloader for bare-metal x86-64 applications. It's llke a much simpler version of GRUB.
+A UEFI bootloader for bare-metal x86-64 applications. It's llke a much simpler version of GRUB meant for writing your own operating system-less 64-bit programs. Supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O).
 
 **Coming Soon**  
 
