@@ -5,7 +5,7 @@ It's like a much simpler version of GRUB, mainly meant for writing your own oper
 
 **Coming Soon**  
 
-Current status: It works, but it's a 1000+ line "main" function and needs to be cleaned up before I upload it.
+Current status: It works, but there's one annoyance left (see issue #2) before I upload it.
   
 A simple bare-metal kernel using this bootloader will be uploaded here:  
 https://github.com/KNNSpeed/Simple-Kernel/
@@ -13,7 +13,9 @@ https://github.com/KNNSpeed/Simple-Kernel/
 Why not upload it as-is?  
 Consider the fact that, once something is released online, it can very rapidly disseminate all over the place. If that ever were to happen here, it would be a shame if what spread were an ugly mess. The bootloader.c file cannot be compiled without its headers, and it's just here to show that it does in fact exist.
   
-A full description of how to actually compile, etc. will be added once I finish my to-do list and clean up the mess of code.  
+A full description of how to actually compile, etc. will be posted here. I will also be including a full, multi-platform portable build system I designed that makes compiling as simple as typing ".\Compile" in the command line.
+
+Additionally, there are some parts of GNU-EFI that needed to be updated and augmented, so that will be included out of necessity.
   
 "A delayed game is eventually good, but a rushed game is forever bad."  
 -Shigeru Miyamoto  
