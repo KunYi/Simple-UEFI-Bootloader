@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader
 //==================================================================================================================================
 //
-// Version 0.9
+// Version 0.95
 //
 // Author:
 //  KNNSpeed
@@ -101,7 +101,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   UINT8 RSDPfound = 0;
   UINT8 RSDP_index = 0;
 
-  for(int i=0; i < ST->NumberOfTableEntries; i++)
+  for(UINT8 i=0; i < ST->NumberOfTableEntries; i++)
   {
 // This print is for debugging
 #ifdef MAIN_DEBUG_ENABLED
@@ -129,7 +129,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   // If no RSDP 2.0, check for 1.0
   if(!RSDPfound)
   {
-    for(int i=0; i < ST->NumberOfTableEntries; i++)
+    for(UINT8 i=0; i < ST->NumberOfTableEntries; i++)
     {
       if (compare(&ST->ConfigurationTable[i].VendorGuid, &AcpiTableGuid, 16))
       {
@@ -146,7 +146,13 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     return EFI_INVALID_PARAMETER;
   }
 
+#ifdef MAIN_DEBUG_ENABLED
   Keywait(L"\0");
+
+  // View memmap before too much happens to it
+  print_memmap();
+  Keywait(L"Done printing MemMap.\r\n");
+#endif
 
   // Get and set graphics output information
   EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE Graphics;
@@ -196,6 +202,14 @@ EFI_STATUS EFIAPI Keywait(CHAR16 *String)
 
   // Poll for key
   while ((Status = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
+
+  // Clear keystroke buffer (this is just a pause)
+  Status = ST->ConIn->Reset(ST->ConIn, FALSE);
+  if (EFI_ERROR(Status))
+  {
+    return Status;
+  }
+
   Print(L"\r\n");
 
   return Status;
@@ -209,11 +223,11 @@ EFI_STATUS EFIAPI Keywait(CHAR16 *String)
 // Returns 1 if the two items are the same; 0 if they're not.
 //
 
-int EFIAPI compare(const void* firstitem, const void* seconditem, size_t comparelength) // Variable 'comparelength' is in bytes
+UINT8 EFIAPI compare(const void* firstitem, const void* seconditem, UINT64 comparelength) // Variable 'comparelength' is in bytes
 {
   // Using const since this is a read-only operation: absolutely nothing should be changed here.
-  const unsigned char *one = firstitem, *two = seconditem;
-  for (size_t i = 0; i < comparelength; i++)
+  const UINT8 *one = firstitem, *two = seconditem;
+  for (UINT64 i = 0; i < comparelength; i++)
   {
     if(one[i] != two[i])
     {
@@ -267,11 +281,10 @@ int EFIAPI compare(const void* firstitem, const void* seconditem, size_t compare
 */
 //
 
-EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) // TODO: Declaring a pointer only allocates 8 bytes (x64) for that pointer. Every pointer's destination must be manually allocated memory, and then freed with freepool. Hence all the overrruns.
+EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) // Declaring a pointer only allocates 8 bytes (x64) for that pointer. Every pointer's destination must be manually allocated memory via AllocatePool and then freed with FreePool when done with.
 {
   EFI_STATUS GOPStatus;
 
-  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo; // TODO: This will need pool & freedom
   UINT64 GOPInfoSize;
   UINT32 mode;
   UINTN NumHandlesInHandleBuffer = 0; // Number of discovered graphics handles
@@ -281,9 +294,24 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
   Key.UnicodeChar = 0;
 
 #ifdef GOP_DEBUG_ENABLED
-  Keywait(L"Allocating pool...\r\n");
+  Keywait(L"Allocating GOP pools...\r\n");
 #endif
-  EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable; // TODO: This will need pool & freedom
+
+  EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
+  // Reserve memory for graphics output structure
+  GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
+    return *(GOPTable->Mode);
+  }
+/*
+  // These are all the same
+  Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
+  Print(L"sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL));
+  Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
+  Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
+*/
   // Reserve memory for graphics output mode to preserve it
   GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
   if(EFI_ERROR(GOPStatus))
@@ -291,14 +319,15 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
     Print(L"GOP Mode AllocatePool error. 0x%llx\r\n", GOPStatus);
     return *(GOPTable->Mode);
   }
+  // Mode->Info gets reserved once SizeOfInfo is determined.
 
 #ifdef GOP_DEBUG_ENABLED
-  Keywait(L"Mode pool allocated....\r\n");
+  Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 
 /*
   // Using LocateProtocol to find a graphics handle
-  GOPStatus = BS->LocateProtocol(&GraphicsOutputProtocol, NULL, (void **)&GOPTable);
+  GOPStatus = BS->LocateProtocol(&GraphicsOutputProtocol, NULL, (void**)&GOPTable);
   if(EFI_ERROR(GOPStatus))
   {
     Print(L"GraphicsTable LocateProtocol error. 0x%llx\r\n", GOPStatus);
@@ -352,6 +381,7 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
 
   Keywait(L"\0");
 
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo; // Querymode allocates GOPInfo
   // Get detailed info about supported graphics modes
   for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
   {
@@ -366,6 +396,14 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
     Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPInfo->PixelFormat, GOPInfo->PixelInformation.RedMask, GOPInfo->PixelInformation.GreenMask, GOPInfo->PixelInformation.BlueMask, GOPInfo->PixelInformation.ReservedMask);
     Keywait(L"\0");
   }
+
+  // Don't need GOPInfo anymore
+  GOPStatus = BS->FreePool(GOPInfo);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
+    Keywait(L"\0");
+  }
 #endif
 
   Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
@@ -375,17 +413,18 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
 #endif
 
   // Get supported graphics modes
+  EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo2; // Querymode allocates GOPInfo
   while(0x30 > Key.UnicodeChar || Key.UnicodeChar > (0x30 + GOPTable->Mode->MaxMode - 1))
   {
     for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
     {
-      GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo); // IN IN OUT OUT
+      GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
         return *(GOPTable->Mode);
       }
-      Print(L"%c. %ux%u\r\n", mode + 0x30, GOPInfo->HorizontalResolution, GOPInfo->VerticalResolution);
+      Print(L"%c. %ux%u\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution);
     }
 
     Print(L"Select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
@@ -395,21 +434,37 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
   mode = (UINT32)(Key.UnicodeChar - 0x30);
   Key.UnicodeChar = 0;
 
+  // Don't need GOPInfo2 anymore
+  GOPStatus = BS->FreePool(GOPInfo2);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"Error freeing GOPInfo2 pool. 0x%llx\r\n", GOPStatus);
+    Keywait(L"\0");
+  }
+
   Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
 
   // Query current mode to get size and info
-  GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo); // IN IN OUT OUT
+  GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
   if(EFI_ERROR(GOPStatus))
   {
     Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
     return *(GOPTable->Mode);
   }
+/*
+#ifdef GOP_DEBUG_ENABLED
+  Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
+#endif
 
-  #ifdef GOP_DEBUG_ENABLED
-    Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
-  #endif
 
   // Reserve memory for graphics output mode information to preserve it
+  GOPStatus = BS->FreePool(GOPTable->Mode->Info);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
+    Keywait(L"\0");
+  }
+
   GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
   if(EFI_ERROR(GOPStatus))
   {
@@ -422,10 +477,12 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
 #endif
 
   *GOPTable->Mode->Info = *GOPInfo;
-//TODO: Free GOPInfo pool here
+*/
+
 #ifdef GOP_DEBUG_ENABLED
-    Keywait(L"Current mode info assigned.\r\n");
+  Keywait(L"Current mode info assigned and allocated.\r\n");
 #endif
+
   // Clear screen to reset cursor position
   ST->ConOut->ClearScreen(ST->ConOut);
 
@@ -436,11 +493,12 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
     Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
     return *(GOPTable->Mode);
   }
-
+  // Don't need GraphicsHandles anymore
   GOPStatus = BS->FreePool(GraphicsHandles);
   if(EFI_ERROR(GOPStatus))
   {
     Print(L"Error freeing GraphicsHandles pool. 0x%llx\r\n", GOPStatus);
+    Keywait(L"\0");
   }
 
 #ifdef GOP_DEBUG_ENABLED
@@ -455,6 +513,19 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
   Keywait(L"\0");
 #endif
 
+  // Don't need GOPTable functions anymore, just need to be able to return GOPTable->Mode next.
+  // This freepool may not actually be needed...
+/*
+  if(GOPTable)
+  {
+    GOPStatus = BS->FreePool(GOPTable);
+    if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"Error freeing GOPTable pool. 0x%llx\r\n", GOPStatus);
+      Keywait(L"\0");
+    }
+  }
+*/
   return *(GOPTable->Mode);
 }
 /*
@@ -586,17 +657,17 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
   Print(L"GO GO GO!!!\r\n");
   EFI_STATUS GoTimeStatus;
 
-// Load file called Kernel64 from this drive's root
+  // Load file called Kernel64 from this drive's root
 
-	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage; // TODO: needs pool
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, sizeof(EFI_LOADED_IMAGE_PROTOCOL), (void**)&LoadedImage); // Reserve memory for mode to preserve it
+	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
+  // Reserve memory for LoadedImage
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_LOADED_IMAGE_PROTOCOL), (void**)&LoadedImage);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"LoadedImage AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
-*/
+
   // Get a pointer to the (loaded image) pointer of BOOTX64.EFI
   // Pointer 1 -> Pointer 2 -> BOOTX64.EFI
   // OpenProtocol wants Pointer 1 as input to give you Pointer 2.
@@ -607,16 +678,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
     return GoTimeStatus;
   }
 
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem; // TODO: needs pool
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, sizeof(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL), (void**)&FileSystem); // Reserve memory for mode to preserve it
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
+  // Reserve memory for filesystem structure
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL), (void**)&FileSystem);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"FileSystem AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
-*/
-  // Parent device of BOOTX64.EFI (the imagehandle passed in originally is this very file)
+
+  // Parent device of BOOTX64.EFI (the ImageHandle originally passed in is this very file)
   // Loadedimage is an EFI_LOADED_IMAGE_PROTOCOL pointer that points to BOOTX64.EFI
   GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
   if(EFI_ERROR(GoTimeStatus))
@@ -625,7 +696,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
     return GoTimeStatus;
   }
 
-  EFI_FILE *CurrentDriveRoot; // TODO: needs pool
+  EFI_FILE *CurrentDriveRoot;
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&CurrentDriveRoot);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"CurrentDriveRoot AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
   GoTimeStatus = FileSystem->OpenVolume(FileSystem, &CurrentDriveRoot);
   if(EFI_ERROR(GoTimeStatus))
   {
@@ -633,7 +711,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
     return GoTimeStatus;
   }
 
-  EFI_FILE *KernelFile; // TODO: needs pool
+  EFI_FILE *KernelFile;
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&KernelFile);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelFile AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
   // Open the kernel file from current drive root and point to it with KernelFile
 	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, L"Kernel64", EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
 	if (EFI_ERROR(GoTimeStatus))
@@ -716,7 +801,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
     return GoTimeStatus;
   }
 */
-// Don't need to allocate memory for DOS headers
+// Don't need to allocate memory for non-pointer DOS headers
 
   GoTimeStatus = KernelFile->Read(KernelFile, &size, &DOSheader);
   if(EFI_ERROR(GoTimeStatus))
@@ -762,7 +847,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
       return GoTimeStatus;
     }
 */
-// Don't need to allocate memory for PE headers
+// Don't need to allocate memory for non-pointer PE headers
 
     GoTimeStatus = KernelFile->Read(KernelFile, &size, &PEHeader);
     if(EFI_ERROR(GoTimeStatus))
@@ -811,7 +896,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         UINT64 virt_size = 0; // Size of all the data sections combined, which we need to know in order to allocate the right number of pages
         UINT64 Numofsections = (UINT64)PEHeader.FileHeader.NumberOfSections; // Number of sections described at end of PE headers
         IMAGE_SECTION_HEADER section_headers_table[Numofsections]; // This table is an array of section headers
-        size = IMAGE_SIZEOF_SECTION_HEADER*Numofsections; //size of section header table in file... Hm...
+        size = IMAGE_SIZEOF_SECTION_HEADER*Numofsections; // Size of section header table in file... Hm...
 
 //        IMAGE_SECTION_HEADER *section_headers_table_pointer = section_headers_table; // Pointer to the first section header is the same as a pointer to the table
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -820,14 +905,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         Keywait(L"\0");
 #endif
 /*
-        GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&section_headers_table_pointer);
+        GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&section_headers_table);
         if(EFI_ERROR(GoTimeStatus))
         {
           Print(L"Section headers table AllocatePool error. 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
 */
-// Don't need to allocate memory for the section headers table
+// Doesn't look like section_headers_table needs to be explicitly allocated memory
 
         // Cursor is already at the end of the PE Header
         GoTimeStatus = KernelFile->Read(KernelFile, &size, &section_headers_table[0]); // Run right over the section table, it should be exactly the size to hold this data
@@ -870,6 +955,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
         Print(L"Expected ImageBase: 0x%llx\r\n", PEHeader.OptionalHeader.ImageBase);
+
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
 #endif
 
         EFI_PHYSICAL_ADDRESS AllocatedMemory = PEHeader.OptionalHeader.ImageBase;
@@ -881,20 +969,27 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
 
         GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &AllocatedMemory);
 //        GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &AllocatedMemory);
-
         if(EFI_ERROR(GoTimeStatus))
         {
           Print(L"Could not allocate pages for PE32+ sections. Error code: %lld\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
 
+        // Zero the allocated pages
+//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 
+        // Check if the address given to AllocatedMemory is listed as free in the MemMap
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+
         // Map headers
         Print(L"\nLoading Headers:\r\n");
         Print(L"Check:\r\nSectionAddress: 0x%llx\r\nData there: 0x%016llx%016llx (Should be 0)\r\n", AllocatedMemory, *(EFI_PHYSICAL_ADDRESS*)(AllocatedMemory + 8), *(EFI_PHYSICAL_ADDRESS*)AllocatedMemory); // Print the first 128 bits of data at that address to compare
+        Keywait(L"\0");
 #endif
 
         GoTimeStatus = KernelFile->SetPosition(KernelFile, 0);
@@ -942,11 +1037,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
             return GoTimeStatus;
           }
 
-          GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
-          if(EFI_ERROR(GoTimeStatus))
+          if(RawDataSize != 0) // Apparently some UEFI implementations can't deal with reading 0 byte sections
           {
-            Print(L"Section read error. 0x%llx\r\n", GoTimeStatus);
-            return GoTimeStatus;
+            GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"Section read error. 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
           }
 
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -1132,6 +1230,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         return GoTimeStatus;
       }
 
+      // Zero the allocated pages
+//      ZeroMem(&DOSMem, (pages << EFI_PAGE_SHIFT));
+
 #ifdef DOS_LOADER_DEBUG_ENABLED
       Print(L"DOSMem location: 0x%llx\r\n", DOSMem);
       Keywait(L"Allocate Pages passed.\r\n");
@@ -1298,6 +1399,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
           return GoTimeStatus;
         }
 
+        // Zero the allocated pages
+//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
 #ifdef ELF_LOADER_DEBUG_ENABLED
         Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
@@ -1333,13 +1437,15 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
               return GoTimeStatus;
             }
 
-            GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
-            if(EFI_ERROR(GoTimeStatus))
+            if(RawDataSize != 0) // Apparently some UEFI implementations can't deal with reading 0 byte sections
             {
-              Print(L"Program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
-              return GoTimeStatus;
+              GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
+              if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
+                return GoTimeStatus;
+              }
             }
-
 #ifdef ELF_LOADER_DEBUG_ENABLED
             Print(L"\r\nVerify:\r\nSectionAddress: 0x%llx\r\nData there (first 16 bytes): 0x%016llx%016llx\r\n", SectionAddress, *(EFI_PHYSICAL_ADDRESS*)(SectionAddress + 8), *(EFI_PHYSICAL_ADDRESS*)SectionAddress); // print the first 128 bits of that address to compare
             Print(L"Last 16 bytes: 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(SectionAddress + RawDataSize - 8), *(EFI_PHYSICAL_ADDRESS*)(SectionAddress + RawDataSize - 16));
@@ -1508,6 +1614,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
           return GoTimeStatus;
         }
 
+        // Zero the allocated pages
+//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
 #ifdef MACH_LOADER_DEBUG_ENABLED
         Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
@@ -1541,11 +1650,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
               return GoTimeStatus;
             }
 
-            GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
-            if(EFI_ERROR(GoTimeStatus))
+            if(RawDataSize != 0) // Apparently some UEFI implementations can't deal with reading 0 byte sections
             {
-              Print(L"Program segment read error (Mach64). 0x%llx\r\n", GoTimeStatus);
-              return GoTimeStatus;
+              GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
+              if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Program segment read error (Mach64). 0x%llx\r\n", GoTimeStatus);
+                return GoTimeStatus;
+              }
             }
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
@@ -1644,6 +1756,55 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
   Print(L"Data at RSDP (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(RSDPTable + 8), *(EFI_PHYSICAL_ADDRESS*)RSDPTable);
 #endif
 
+  // All EfiBootServicesData are freed by a call to ExitBootServices().
+  // The only reason these were allocated in the first place was to stop this program from overwriting itself.
+  // There should not be any memory leaks since AllocatePools were defined to be exactly the size they needed to be.
+/*
+  // Free previously allocated file-related (Kernel64) pools
+  if(KernelFile)
+  {
+    GoTimeStatus = BS->FreePool(KernelFile);
+    if(EFI_ERROR(GoTimeStatus))
+    {
+      Print(L"Error freeing KernelFile pool. 0x%llx\r\n", GoTimeStatus);
+      Keywait(L"\0");
+    }
+  }
+
+  if(CurrentDriveRoot)
+  {
+    GoTimeStatus = BS->FreePool(CurrentDriveRoot);
+    if(EFI_ERROR(GoTimeStatus))
+    {
+      Print(L"Error freeing CurrentDriveRoot pool. 0x%llx\r\n", GoTimeStatus);
+      Keywait(L"\0");
+    }
+  }
+
+  if(FileSystem)
+  {
+    GoTimeStatus = BS->FreePool(FileSystem);
+    if(EFI_ERROR(GoTimeStatus))
+    {
+      Print(L"Error freeing FileSystem pool. 0x%llx\r\n", GoTimeStatus);
+      Keywait(L"\0");
+    }
+  }
+
+  if(LoadedImage)
+  {
+    GoTimeStatus = BS->FreePool(LoadedImage);
+    if(EFI_ERROR(GoTimeStatus))
+    {
+      Print(L"Error freeing LoadedImage pool. 0x%llx\r\n", GoTimeStatus);
+      Keywait(L"\0");
+    }
+  }
+
+#ifdef LOADER_DEBUG_ENABLED
+  Keywait(L"File pools freed.\r\n");
+#endif
+*/
   // Reserve memory for the loader block
   LOADER_PARAMS * Loader_block;
   GoTimeStatus = BS->AllocatePool(EfiLoaderData, sizeof(LOADER_PARAMS), (void**)&Loader_block);
@@ -1674,7 +1835,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
   // Simple version:
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   // Will error intentionally
-  GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // this might be really slow. mapSize += 2 * descriptorSize or mapSize += descriptorSize; might be all that's needed
+  GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap);
   if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", GoTimeStatus);
@@ -1784,4 +1945,73 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
 
   // Should never get here
   return GoTimeStatus;
+}
+
+// The ultimate debugging tool...
+VOID print_memmap()
+{
+  //Get the system memory map, parse it, and print it. Print the whole thing.
+  EFI_STATUS memmap_status;
+  UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
+  UINT32 MemMapDescriptorVersion;
+  EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
+  EFI_MEMORY_DESCRIPTOR * Piece;
+  UINT16 line = 0;
+
+  CHAR16 * mem_types[] = {
+      L"EfiReservedMemoryType     ",
+      L"EfiLoaderCode             ",
+      L"EfiLoaderData             ",
+      L"EfiBootServicesCode       ",
+      L"EfiBootServicesData       ",
+      L"EfiRuntimeServicesCode    ",
+      L"EfiRuntimeServicesData    ",
+      L"EfiConventionalMemory     ",
+      L"EfiUnusableMemory         ",
+      L"EfiACPIReclaimMemory      ",
+      L"EfiACPIMemoryNVS          ",
+      L"EfiMemoryMappedIO         ",
+      L"EfiMemoryMappedIOPortSpace",
+      L"EfiPalCode                ",
+      L"EfiPersistentMemory       ",
+      L"EfiMaxMemoryType          "
+  };
+
+  memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  if(memmap_status == EFI_BUFFER_TOO_SMALL)
+  {
+    memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
+    if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
+    {
+      Print(L"MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
+      return;
+    }
+    memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  }
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error getting memory map for printing. 0x%llx\r\n", memmap_status);
+  }
+
+  Print(L"MemMapSize: %llu, MemMapDescriptorSize: %llu, MemMapDescriptorVersion: 0x%x\r\n", MemMapSize, MemMapDescriptorSize, MemMapDescriptorVersion);
+
+  // There's no virtual addressing yet, so there's no need to see Piece->VirtualStart
+  // Multiply NumOfPages by 0x1000 (4096) to get the end address... which should just be the start of the next section.
+  for(Piece = MemMap; Piece < (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize); Piece = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)Piece + MemMapDescriptorSize))
+  {
+    if(line%20 == 0)
+    {
+      Keywait(L"\0");
+      Print(L"#   Memory Type                Phys Addr Start   Num Of Pages   Attr\r\n");
+    }
+
+    Print(L"%2hu: %s 0x%016llx 0x%llx 0x%llx\r\n", line, mem_types[Piece->Type], Piece->PhysicalStart, Piece->NumberOfPages, Piece->Attribute);
+    line++;
+  }
+
+  BS->FreePool(MemMap);
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error freeing print_memmap pool. 0x%llx\r\n", memmap_status);
+  }
 }
