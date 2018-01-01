@@ -50,6 +50,8 @@
 #define DOS_LOADER_DEBUG_ENABLED
 #define ELF_LOADER_DEBUG_ENABLED
 #define MACH_LOADER_DEBUG_ENABLED
+#define MEMORY_DEBUG_ENABLED
+//#define BY_PAGE_SEARCH_DISABLED
 
 //==================================================================================================================================
 //  efi_main: Main Function
@@ -223,7 +225,8 @@ EFI_STATUS EFIAPI Keywait(CHAR16 *String)
 // Returns 1 if the two items are the same; 0 if they're not.
 //
 
-UINT8 EFIAPI compare(const void* firstitem, const void* seconditem, UINT64 comparelength) // Variable 'comparelength' is in bytes
+// Variable 'comparelength' is in bytes
+UINT8 EFIAPI compare(const void* firstitem, const void* seconditem, UINT64 comparelength)
 {
   // Using const since this is a read-only operation: absolutely nothing should be changed here.
   const UINT8 *one = firstitem, *two = seconditem;
@@ -455,7 +458,6 @@ EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle) //
 #ifdef GOP_DEBUG_ENABLED
   Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
 #endif
-
 
   // Reserve memory for graphics output mode information to preserve it
   GOPStatus = BS->FreePool(GOPTable->Mode->Info);
@@ -971,15 +973,299 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
 //        GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &AllocatedMemory);
         if(EFI_ERROR(GoTimeStatus))
         {
-          Print(L"Could not allocate pages for PE32+ sections. Error code: %lld\r\n", GoTimeStatus);
+          Print(L"Could not allocate pages for PE32+ sections. Error code: 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
+
+#ifdef PE_LOADER_DEBUG_ENABLED
+        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+#endif
 
         // Zero the allocated pages
 //        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
 
+        // If that memory isn't actually free due to weird firmware behavior...
+        // Iterate through the entirety of what was just allocated and check to make sure it's all zeros
+        // Start buggy firmware workaround
+        if(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+        {
+
+          Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+          // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
+          // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
+
+          // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+          UINT64 MemCheck = IMAGE_DOS_SIGNATURE; // Good thing we know what to expect!
+
+          if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
+          {
+            // Do nothing, we're fine
+            Print(L"System was reset. No issues.\r\n");
+          }
+          else // Not our remains, proceed with discovery of viable memory address
+          {
+
+            Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
+
+            // Free the pages (well, return them to the system as they were...)
+            GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"Could not free pages for PE32+ sections. Error code: 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+
+            // NOTE: CANNOT create an array of all compatible free addresses because the array takes up memory. So does the memory map.
+            // This results in a paradox, so we need to scan the memory map every time we need to find a new address...
+
+            // It appears that AllocateAnyPages uses a "MaxAddress" approach. This will go bottom-up instead.
+            EFI_PHYSICAL_ADDRESS NewAddress = 0; // Start at zero
+            EFI_PHYSICAL_ADDRESS OldAllocatedMemory = AllocatedMemory;
+
+            GoTimeStatus = EFI_NOT_FOUND; // Allocate pages
+            while(GoTimeStatus != EFI_SUCCESS)
+            { // Keep checking free memory addresses until one works
+
+              GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+
+              if(GoTimeStatus == EFI_NOT_FOUND)
+              {
+                // 0's not a good address (not enough contiguous pages could be found), get another one
+                NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                // Make sure the new address isn't the known bad one
+                if(NewAddress == OldAllocatedMemory)
+                {
+                  // Get a new address if it is
+                  NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                }
+              }
+              else if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Could not get an address for PE32+ pages. Error code: 0x%llx\r\n", GoTimeStatus);
+                return GoTimeStatus;
+              }
+
+              if(NewAddress == -1)
+              {
+                // If you get this, you had no memory free anywhere.
+                return GoTimeStatus;
+              }
+
+              // Allocate the new address
+              // This loop shouldn't run more than once, but in the event something is at 0 we need to
+              // leave the loop with an allocated address
+
+            }
+
+            // Got a new address that's been allocated--save it
+            AllocatedMemory = NewAddress;
+
+            // Verify it's empty
+            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            { // It's not empty :(
+
+              // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+              if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
+              {
+                // Do nothing, we're fine
+                Print(L"System appears to have been reset. No issues.\r\n");
+                break;
+              }
+              else
+              { // Gotta keep looking for a good memory address
+
+#ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching... 0x%llx\r\n", AllocatedMemory);
+#endif
+
+                // It's not actually free...
+                GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not free pages for PE32+ sections (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                // So get a new address (the next available one)
+                NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                // Make sure the new address isn't the known bad one
+                if(NewAddress == OldAllocatedMemory)
+                {
+                  // Get a new address if it is
+                  NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                }
+
+                // Allocate the new address
+                GoTimeStatus = EFI_NOT_FOUND;
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                {
+
+                  GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+
+                  if(GoTimeStatus == EFI_NOT_FOUND)
+                  {
+                    // Still not a good address, get another one (this should be very rare)
+                    NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    // Make sure the new address isn't the known bad one
+                    if(NewAddress == OldAllocatedMemory)
+                    {
+                      // Get a new address if it is
+                      NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    }
+                    // This loop will run until we get a good address (shouldn't be more than once, if ever)
+                  }
+                  else if(EFI_ERROR(GoTimeStatus))
+                  {
+                    // EFI_OUT_OF_RESOURCES means the firmware's just not gonna load anything.
+                    Print(L"Could not get an address for PE32+ pages (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+                  // NOTE: The number of times the message "No more free addresses" pops up
+                  // helps indicate which NewAddress assignment hit the end.
+
+                } // loop
+
+                // It's a new address
+                AllocatedMemory = NewAddress;
+
+                // Verify new address is empty (in loop), if not then free it and try again.
+              } // else
+            } // End VerifyZeroMem while loop
+
+            // Ran out of easy addresses, time for a more thorough check
+            // Hopefully no one ever gets here
+            if(AllocatedMemory == -1)
+            { // NewAddress is also -1
+
+#ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
+              return GoTimeStatus;
+#endif
+#ifndef BY_PAGE_SEARCH_DISABLED
+#ifdef MEMORY_DEBUG_ENABLED
+              Keywait(L"About to search page by page\r\n");
+#endif
+              NewAddress = 0; // Start over at 0
+              NewAddress = ActuallyFreeAddressByPage(pages, NewAddress); // We know zero doesn't work, so get the first available free page
+              // Make sure the new address isn't the known bad one
+              if(NewAddress == OldAllocatedMemory)
+              {
+                // Get a new address if it is
+                NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+              }
+
+              // Allocate the page's address
+              GoTimeStatus = EFI_NOT_FOUND;
+              while(GoTimeStatus != EFI_SUCCESS)
+              {
+
+                GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+
+                if(GoTimeStatus == EFI_NOT_FOUND)
+                {
+                  // Nope, get another one
+                  NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  // Make sure the new address isn't the known bad one
+                  if(NewAddress == OldAllocatedMemory)
+                  {
+                    // Get a new address if it is
+                    NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  }
+                }
+                else if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not get an address for PE32+ pages by page. Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                if(NewAddress == -1)
+                {
+                  // If you somehow get this, you really had no memory free anywhere.
+                  return GoTimeStatus;
+                }
+
+              }
+
+              AllocatedMemory = NewAddress;
+
+              while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+              {
+                // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+                if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
+                {
+                  // Do nothing, we're fine
+                  Print(L"System looks to have been reset. No issues.\r\n");
+                  break;
+                }
+                else
+                {
+
+#ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching by page... 0x%llx\r\n", AllocatedMemory);
+#endif
+
+                  // It's not actually free...
+                  GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                  if(EFI_ERROR(GoTimeStatus))
+                  {
+                    Print(L"Could not free pages for PE32+ sections by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+
+                  NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  // Make sure the new address isn't the known bad one
+                  if(NewAddress == OldAllocatedMemory)
+                  {
+                    // Get a new address if it is
+                    NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  }
+
+                  GoTimeStatus = EFI_NOT_FOUND;
+                  while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                  {
+
+                    GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+
+                    if(GoTimeStatus == EFI_NOT_FOUND)
+                    {
+                      // Nope, get another one
+                      NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      // Make sure the new address isn't the known bad one
+                      if(NewAddress == OldAllocatedMemory)
+                      {
+                        // Get a new address if it is
+                        NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      }
+                    }
+                    else if(EFI_ERROR(GoTimeStatus))
+                    {
+                      Print(L"Could not get an address for PE32+ pages by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                      return GoTimeStatus;
+                    }
+
+                  } // loop
+
+                  AllocatedMemory = NewAddress;
+
+                } // else
+              } // end ByPage VerifyZeroMem loop
+
+              if(AllocatedMemory == -1)
+              {
+                // Well, darn. Something's up with the system memory.
+                return GoTimeStatus;
+              }
+#endif
+            } // End "big guns"
+
+            // Got a good address!
+            Print(L"Found!\r\n");
+
+          } // End discovery of viable memory address (else)
+          // Can move on now
+        } // End VerifyZeroMem buggy firmware workaround (outermost if)
+
 #ifdef PE_LOADER_DEBUG_ENABLED
-        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+        Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 
         // Check if the address given to AllocatedMemory is listed as free in the MemMap
@@ -1226,7 +1512,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
       GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &DOSMem);
       if(EFI_ERROR(GoTimeStatus))
       {
-        Print(L"Could not allocate pages for MZ load module. Error code: %lld\r\n", GoTimeStatus);
+        Print(L"Could not allocate pages for MZ load module. Error code: 0x%llx\r\n", GoTimeStatus);
         return GoTimeStatus;
       }
 
@@ -1395,7 +1681,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &AllocatedMemory);
         if(EFI_ERROR(GoTimeStatus))
         {
-          Print(L"Could not allocate pages for ELF program segments. Error code: %lld\r\n", GoTimeStatus);
+          Print(L"Could not allocate pages for ELF program segments. Error code: 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
 
@@ -1610,7 +1896,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &AllocatedMemory);
         if(EFI_ERROR(GoTimeStatus))
         {
-          Print(L"Could not allocate pages for Mach64 segment sections. Error code: %lld\r\n", GoTimeStatus);
+          Print(L"Could not allocate pages for Mach64 segment sections. Error code: 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
 
@@ -1947,10 +2233,171 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
   return GoTimeStatus;
 }
 
-// The ultimate debugging tool...
+//==================================================================================================================================
+//  VerifyZeroMem: Verify Memory Is Free
+//==================================================================================================================================
+//
+// Return 0 if desired section of memory is zeroed (for use in "if" statements)
+//
+
+UINT8 EFIAPI VerifyZeroMem(UINT64 NumBytes, UINT64 BaseAddr)
+{
+  for(UINT64 i = 0; i < NumBytes; i++)
+  {
+    if(*(EFI_PHYSICAL_ADDRESS*)(BaseAddr + i) != 0)
+    {
+      return 1;
+    }
+  }
+  return 0;
+}
+
+//==================================================================================================================================
+//  ActuallyFreeAddress: Find A Free Memory Address, Bottom-Up
+//==================================================================================================================================
+//
+// This is meant to work in the event that AllocateAnyPages fails, but could have other uses. Returns the next EfiConventionalMemory
+// area that is > the supplied OldAddress.
+//
+
+EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldAddress)
+{
+  EFI_STATUS memmap_status;
+  UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
+  UINT32 MemMapDescriptorVersion;
+  EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
+  EFI_MEMORY_DESCRIPTOR * Piece;
+
+  memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  if(memmap_status == EFI_BUFFER_TOO_SMALL)
+  {
+    memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
+    if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
+    {
+      Print(L"ActuallyFreeAddress MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
+      return 0;
+    }
+    memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  }
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error getting memory map for ActuallyFreeAddress. 0x%llx\r\n", memmap_status);
+  }
+
+  // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
+  // Check for EfiConventionalMemory in the map
+  for(Piece = MemMap; Piece < (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize); Piece = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)Piece + MemMapDescriptorSize))
+  {
+    // Within each compatible EfiConventionalMemory, look for space
+    if((Piece->Type == EfiConventionalMemory) && (Piece->NumberOfPages >= pages) && (Piece->PhysicalStart > OldAddress))
+    {
+      break;
+    }
+  }
+
+  // Loop ended without a DiscoveredAddress
+  if(Piece >= (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize))
+  {
+    // Return address -1, which will cause AllocatePages to fail
+    Print(L"No more free addresses...\r\n");
+    return -1;
+  }
+
+  BS->FreePool(MemMap);
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error freeing ActuallyFreeAddress memmap pool. 0x%llx\r\n", memmap_status);
+  }
+
+  return Piece->PhysicalStart;
+}
+
+//==================================================================================================================================
+//  ActuallyFreeAddressByPage: Find A Free Memory Address, Bottom-Up, The Hard Way
+//==================================================================================================================================
+//
+// This is meant to work in the event that AllocateAnyPages fails, but could have other uses. Returns the next page address marked as
+// free (EfiConventionalMemory) that is > the supplied OldAddress.
+//
+// This will take AGES on a system with a lot of garbage-filled RAM. I was actually able to determine that I had a bad overclock with it...
+//
+
+EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRESS OldAddress)
+{
+  EFI_STATUS memmap_status;
+  UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
+  UINT32 MemMapDescriptorVersion;
+  EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
+  EFI_MEMORY_DESCRIPTOR * Piece;
+  EFI_PHYSICAL_ADDRESS PhysicalEnd;
+  EFI_PHYSICAL_ADDRESS DiscoveredAddress;
+
+  memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  if(memmap_status == EFI_BUFFER_TOO_SMALL)
+  {
+    memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
+    if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
+    {
+      Print(L"ActuallyFreeAddressByPage MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
+      return 0;
+    }
+    memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
+  }
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error getting memory map for ActuallyFreeAddressByPage. 0x%llx\r\n", memmap_status);
+  }
+
+  // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
+  // Check for EfiConventionalMemory in the map
+  for(Piece = MemMap; Piece < (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize); Piece = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)Piece + MemMapDescriptorSize))
+  {
+    // Within each compatible EfiConventionalMemory, look for space
+    if((Piece->Type == EfiConventionalMemory) && (Piece->NumberOfPages >= pages))
+    {
+      PhysicalEnd = Piece->PhysicalStart + (Piece->NumberOfPages << EFI_PAGE_SHIFT) - 1; // Get the end of this range
+      // (pages*EFI_PAGE_SIZE) or (pages << EFI_PAGE_SHIFT) gives the size the kernel would take up in memory
+      if((OldAddress >= Piece->PhysicalStart) && ((OldAddress + (pages << EFI_PAGE_SHIFT)) < PhysicalEnd)) // Bounds check on OldAddress
+      {
+        // Return the next available page's address in the range. We need to go page-by-page for the really buggy systems.
+        DiscoveredAddress = OldAddress + EFI_PAGE_SIZE; // Left shift EFI_PAGE_SIZE by 1 or 2 to check every 0x10 or 0x100 pages (must also modify the above PhysicalEnd bound check)
+        break;
+        // If PhysicalEnd == OldAddress, we need to go to the next EfiConventionalMemory range
+      }
+      else if(Piece->PhysicalStart > OldAddress) // Try a new range
+      {
+        DiscoveredAddress = Piece->PhysicalStart;
+        break;
+      }
+    }
+  }
+
+  // Loop ended without a DiscoveredAddress
+  if(Piece >= (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize))
+  {
+    // Return address -1, which will cause AllocatePages to fail
+    Print(L"No more free addresses by page...\r\n");
+    return -1;
+  }
+
+  BS->FreePool(MemMap);
+  if(EFI_ERROR(memmap_status))
+  {
+    Print(L"Error freeing ActuallyFreeAddressByPage memmap pool. 0x%llx\r\n", memmap_status);
+  }
+
+  return DiscoveredAddress;
+}
+
+//==================================================================================================================================
+//  print_memmap: The Ultimate Debugging Tool
+//==================================================================================================================================
+//
+// Get the system memory map, parse it, and print it. Print the whole thing.
+//
+
 VOID print_memmap()
 {
-  //Get the system memory map, parse it, and print it. Print the whole thing.
   EFI_STATUS memmap_status;
   UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
   UINT32 MemMapDescriptorVersion;
@@ -1980,7 +2427,7 @@ VOID print_memmap()
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
-    memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
+    memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
@@ -1996,7 +2443,7 @@ VOID print_memmap()
   Print(L"MemMapSize: %llu, MemMapDescriptorSize: %llu, MemMapDescriptorVersion: 0x%x\r\n", MemMapSize, MemMapDescriptorSize, MemMapDescriptorVersion);
 
   // There's no virtual addressing yet, so there's no need to see Piece->VirtualStart
-  // Multiply NumOfPages by 0x1000 (4096) to get the end address... which should just be the start of the next section.
+  // Multiply NumOfPages by EFI_PAGE_SIZE or do (NumOfPages << EFI_PAGE_SHIFT) to get the end address... which should just be the start of the next section.
   for(Piece = MemMap; Piece < (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize); Piece = (EFI_MEMORY_DESCRIPTOR*)((UINT8*)Piece + MemMapDescriptorSize))
   {
     if(line%20 == 0)
