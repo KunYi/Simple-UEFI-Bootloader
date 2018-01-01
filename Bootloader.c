@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader
 //==================================================================================================================================
 //
-// Version 0.95
+// Version 0.99
 //
 // Author:
 //  KNNSpeed
@@ -40,9 +40,16 @@
 
 #include "Bootloader.h"
 
-// Uncomment these for useful debugging prints and convenient key-awaiting pauses
+//==================================================================================================================================
+// Useful Debugging Code
+//==================================================================================================================================
+//
+// Uncomment these for useful debugging prints and convenient key-awaiting pauses.
+//
 //NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
 // left to right while the byte order is reversed (right to left)!!
+//
+
 #define MAIN_DEBUG_ENABLED
 #define GOP_DEBUG_ENABLED
 #define LOADER_DEBUG_ENABLED
@@ -50,8 +57,23 @@
 #define DOS_LOADER_DEBUG_ENABLED
 #define ELF_LOADER_DEBUG_ENABLED
 #define MACH_LOADER_DEBUG_ENABLED
-#define MEMORY_DEBUG_ENABLED
+//#define MEMORY_DEBUG_ENABLED // Potential massive performance hit when enabling this and searching for free RAM page-by-page (it prints them all out)
+
+//==================================================================================================================================
+// Memory Allocation Debugging
+//==================================================================================================================================
+//
+// The only reason to touch these #defines is if you are trying to debug this program.
+//
+
+// Some systems need the page-by-page search, so it's best to leave this commented out
 //#define BY_PAGE_SEARCH_DISABLED
+
+// Leave this commented out: AllocateAnyPages seems to enjoy giving non-zero "free" memory addresses, and some
+// systems really need this workaround because they put important stuff at the returned address for some reason.
+// It's the "buggy firmware workaround."
+
+//#define MEMORY_CHECK_DISABLED
 
 //==================================================================================================================================
 //  efi_main: Main Function
@@ -971,6 +993,8 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
 
         GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &AllocatedMemory);
 //        GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &AllocatedMemory);
+//        AllocatedMemory = 0xFFFFFFFF;
+//        GoTimeStatus = BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, pages, &AllocatedMemory);
         if(EFI_ERROR(GoTimeStatus))
         {
           Print(L"Could not allocate pages for PE32+ sections. Error code: 0x%llx\r\n", GoTimeStatus);
@@ -984,11 +1008,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         // Zero the allocated pages
 //        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
 
+#ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
         // Iterate through the entirety of what was just allocated and check to make sure it's all zeros
         // Start buggy firmware workaround
         if(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
         {
+
+          // From UEFI Specification 2.7, Errata A (http://www.uefi.org/specifications):
+          // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
+          // UEFI OS loaders that are provided by operating system vendors.
 
           Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
           // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
@@ -1022,11 +1051,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
             EFI_PHYSICAL_ADDRESS NewAddress = 0; // Start at zero
             EFI_PHYSICAL_ADDRESS OldAllocatedMemory = AllocatedMemory;
 
-            GoTimeStatus = EFI_NOT_FOUND; // Allocate pages
+            GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress); // Need to check 0x0
             while(GoTimeStatus != EFI_SUCCESS)
             { // Keep checking free memory addresses until one works
-
-              GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
 
               if(GoTimeStatus == EFI_NOT_FOUND)
               {
@@ -1038,6 +1065,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                   // Get a new address if it is
                   NewAddress = ActuallyFreeAddress(pages, NewAddress);
                 }
+                else if(NewAddress >= 0x100000000) // Need to stay under 4GB
+                {
+                  NewAddress = -1;
+                }
               }
               else if(EFI_ERROR(GoTimeStatus))
               {
@@ -1048,11 +1079,13 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
               if(NewAddress == -1)
               {
                 // If you get this, you had no memory free anywhere.
+                Print(L"No memory marked as EfiConventionalMemory...\r\n");
                 return GoTimeStatus;
               }
 
               // Allocate the new address
-              // This loop shouldn't run more than once, but in the event something is at 0 we need to
+              GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+              // This loop shouldn't run more than once, but in the event something is at 0x0 we need to
               // leave the loop with an allocated address
 
             }
@@ -1074,9 +1107,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
               else
               { // Gotta keep looking for a good memory address
 
-#ifdef MEMORY_DEBUG_ENABLED
+  #ifdef MEMORY_DEBUG_ENABLED
                 Print(L"Still searching... 0x%llx\r\n", AllocatedMemory);
-#endif
+  #endif
 
                 // It's not actually free...
                 GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
@@ -1086,31 +1119,24 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                   return GoTimeStatus;
                 }
 
-                // So get a new address (the next available one)
-                NewAddress = ActuallyFreeAddress(pages, NewAddress);
-                // Make sure the new address isn't the known bad one
-                if(NewAddress == OldAllocatedMemory)
-                {
-                  // Get a new address if it is
-                  NewAddress = ActuallyFreeAddress(pages, NewAddress);
-                }
-
-                // Allocate the new address
+                // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
                 while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
                 {
-
-                  GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
-
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
-                    // Still not a good address, get another one (this should be very rare)
+                    // Get an address (ideally, this should be very rare)
                     NewAddress = ActuallyFreeAddress(pages, NewAddress);
                     // Make sure the new address isn't the known bad one
                     if(NewAddress == OldAllocatedMemory)
                     {
                       // Get a new address if it is
                       NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    }
+                    else if(NewAddress >= 0x100000000) // Need to stay under 4GB
+                    {
+                      NewAddress = -1; // Get out of this loop, do a more thorough check
+                      break;
                     }
                     // This loop will run until we get a good address (shouldn't be more than once, if ever)
                   }
@@ -1123,6 +1149,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                   // NOTE: The number of times the message "No more free addresses" pops up
                   // helps indicate which NewAddress assignment hit the end.
 
+                  GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
                 } // loop
 
                 // It's a new address
@@ -1137,29 +1164,23 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
             if(AllocatedMemory == -1)
             { // NewAddress is also -1
 
-#ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
+  #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
+              Print(L"No easy addresses found with enough space and containing only zeros.\r\nConsider enabling page-by-page search.\r\n");
               return GoTimeStatus;
-#endif
-#ifndef BY_PAGE_SEARCH_DISABLED
-#ifdef MEMORY_DEBUG_ENABLED
-              Keywait(L"About to search page by page\r\n");
-#endif
-              NewAddress = 0; // Start over at 0
-              NewAddress = ActuallyFreeAddressByPage(pages, NewAddress); // We know zero doesn't work, so get the first available free page
-              // Make sure the new address isn't the known bad one
-              if(NewAddress == OldAllocatedMemory)
-              {
-                // Get a new address if it is
-                NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
-              }
+  #endif
 
+  #ifndef BY_PAGE_SEARCH_DISABLED
+              Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+
+    #ifdef MEMORY_DEBUG_ENABLED
+              Keywait(L"About to search page by page\r\n");
+    #endif
+
+              NewAddress = 0x80000000 - EFI_PAGE_SIZE; // Start over
               // Allocate the page's address
               GoTimeStatus = EFI_NOT_FOUND;
               while(GoTimeStatus != EFI_SUCCESS)
               {
-
-                GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
-
                 if(GoTimeStatus == EFI_NOT_FOUND)
                 {
                   // Nope, get another one
@@ -1169,6 +1190,11 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                   {
                     // Get a new address if it is
                     NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  }
+                  else if(NewAddress >= 0x100000000) // Need to stay under 4GB
+                  {
+                    NewAddress = ActuallyFreeAddress(pages, 0); // Start from the first suitable EfiConventionalMemory address.
+                    // This is for BIOS vendors who blanketly set 0x80000000 in an EfiReservedMemoryType section.
                   }
                 }
                 else if(EFI_ERROR(GoTimeStatus))
@@ -1180,28 +1206,30 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                 if(NewAddress == -1)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
+                  Print(L"Hmm... How did you get here?\r\n");
                   return GoTimeStatus;
                 }
 
+                GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
               }
 
               AllocatedMemory = NewAddress;
 
-              while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+              while(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
               {
                 // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
                 if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
                 {
                   // Do nothing, we're fine
-                  Print(L"System looks to have been reset. No issues.\r\n");
+                  Print(L"System might have been reset. Hopefully no issues.\r\n");
                   break;
                 }
                 else
                 {
 
-#ifdef MEMORY_DEBUG_ENABLED
+    #ifdef MEMORY_DEBUG_ENABLED
                 Print(L"Still searching by page... 0x%llx\r\n", AllocatedMemory);
-#endif
+    #endif
 
                   // It's not actually free...
                   GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
@@ -1211,20 +1239,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                     return GoTimeStatus;
                   }
 
-                  NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
-                  // Make sure the new address isn't the known bad one
-                  if(NewAddress == OldAllocatedMemory)
-                  {
-                    // Get a new address if it is
-                    NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
-                  }
-
                   GoTimeStatus = EFI_NOT_FOUND;
-                  while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                  while(GoTimeStatus != EFI_SUCCESS)
                   {
-
-                    GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
-
                     if(GoTimeStatus == EFI_NOT_FOUND)
                     {
                       // Nope, get another one
@@ -1235,6 +1252,11 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                         // Get a new address if it is
                         NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
                       }
+                      else if(NewAddress >= 0x100000000) // Need to stay under 4GB
+                      {
+                        Print(L"Too much junk below 4GB. Complain to your motherboard vendor.\r\n");
+                        NewAddress = -1; // The BIOS vendor didn't read the spec. RMA your motherboard.
+                      }
                     }
                     else if(EFI_ERROR(GoTimeStatus))
                     {
@@ -1242,19 +1264,20 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
                       return GoTimeStatus;
                     }
 
+                    if(AllocatedMemory == -1)
+                    {
+                      // Well, darn. Something's up with the system memory.
+                      return GoTimeStatus;
+                    }
+
+                    GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
                   } // loop
 
                   AllocatedMemory = NewAddress;
 
                 } // else
               } // end ByPage VerifyZeroMem loop
-
-              if(AllocatedMemory == -1)
-              {
-                // Well, darn. Something's up with the system memory.
-                return GoTimeStatus;
-              }
-#endif
+  #endif
             } // End "big guns"
 
             // Got a good address!
@@ -1263,6 +1286,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
           } // End discovery of viable memory address (else)
           // Can move on now
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+#endif
 
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
@@ -1688,8 +1712,275 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         // Zero the allocated pages
 //        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
 
+#ifndef MEMORY_CHECK_DISABLED
+        // If that memory isn't actually free due to weird firmware behavior...
+        // Iterate through the entirety of what was just allocated and check to make sure it's all zeros
+        // Start buggy firmware workaround
+        if(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+        {
+
+          // From UEFI Specification 2.7, Errata A (http://www.uefi.org/specifications):
+          // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
+          // UEFI OS loaders that are provided by operating system vendors.
+
+          Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+          // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
+          // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
+/* ELF headers don't get copied
+          // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+          // Good thing we know what to expect!
+
+          if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
+          {
+            // Do nothing, we're fine
+            Print(L"System was reset. No issues.\r\n");
+          }
+          else // Not our remains, proceed with discovery of viable memory address
+          {
+*/
+            Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
+
+            // Free the pages (well, return them to the system as they were...)
+            GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"Could not free pages for ELF sections. Error code: 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+
+            // NOTE: CANNOT create an array of all compatible free addresses because the array takes up memory. So does the memory map.
+            // This results in a paradox, so we need to scan the memory map every time we need to find a new address...
+
+            // It appears that AllocateAnyPages uses a "MaxAddress" approach. This will go bottom-up instead.
+            EFI_PHYSICAL_ADDRESS NewAddress = 0; // Start at zero
+            EFI_PHYSICAL_ADDRESS OldAllocatedMemory = AllocatedMemory;
+
+            GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress); // Need to check 0x0
+            while(GoTimeStatus != EFI_SUCCESS)
+            { // Keep checking free memory addresses until one works
+
+              if(GoTimeStatus == EFI_NOT_FOUND)
+              {
+                // 0's not a good address (not enough contiguous pages could be found), get another one
+                NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                // Make sure the new address isn't the known bad one
+                if(NewAddress == OldAllocatedMemory)
+                {
+                  // Get a new address if it is
+                  NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                }
+                // Address can be > 4GB
+              }
+              else if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Could not get an address for ELF pages. Error code: 0x%llx\r\n", GoTimeStatus);
+                return GoTimeStatus;
+              }
+
+              if(NewAddress == -1)
+              {
+                // If you get this, you had no memory free anywhere.
+                Print(L"No memory marked as EfiConventionalMemory...\r\n");
+                return GoTimeStatus;
+              }
+
+              // Allocate the new address
+              GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+              // This loop shouldn't run more than once, but in the event something is at 0x0 we need to
+              // leave the loop with an allocated address
+
+            }
+
+            // Got a new address that's been allocated--save it
+            AllocatedMemory = NewAddress;
+
+            // Verify it's empty
+            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            { // It's not empty :(
+
+              // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+/* ELF headers don't get copied
+              if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
+              {
+                // Do nothing, we're fine
+                Print(L"System appears to have been reset. No issues.\r\n");
+                break;
+              }
+              else
+              { // Gotta keep looking for a good memory address
+*/
+  #ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching... 0x%llx\r\n", AllocatedMemory);
+  #endif
+
+                // It's not actually free...
+                GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not free pages for ELF sections (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                // Allocate a new address
+                GoTimeStatus = EFI_NOT_FOUND;
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                {
+                  if(GoTimeStatus == EFI_NOT_FOUND)
+                  {
+                    // Get an address (ideally, this should be very rare)
+                    NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    // Make sure the new address isn't the known bad one
+                    if(NewAddress == OldAllocatedMemory)
+                    {
+                      // Get a new address if it is
+                      NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    }
+                    // Address can be > 4GB
+                    // This loop will run until we get a good address (shouldn't be more than once, if ever)
+                  }
+                  else if(EFI_ERROR(GoTimeStatus))
+                  {
+                    // EFI_OUT_OF_RESOURCES means the firmware's just not gonna load anything.
+                    Print(L"Could not get an address for ELF pages (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+                  // NOTE: The number of times the message "No more free addresses" pops up
+                  // helps indicate which NewAddress assignment hit the end.
+
+                  GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+                } // loop
+
+                // It's a new address
+                AllocatedMemory = NewAddress;
+
+                // Verify new address is empty (in loop), if not then free it and try again.
+//              } // else
+            } // End VerifyZeroMem while loop
+
+            // Ran out of easy addresses, time for a more thorough check
+            // Hopefully no one ever gets here
+            if(AllocatedMemory == -1)
+            { // NewAddress is also -1
+
+  #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
+              Print(L"No easy addresses found with enough space and containing only zeros.\r\nConsider enabling page-by-page search.\r\n");
+              return GoTimeStatus;
+  #endif
+
+  #ifndef BY_PAGE_SEARCH_DISABLED
+              Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+
+    #ifdef MEMORY_DEBUG_ENABLED
+              Keywait(L"About to search page by page\r\n");
+    #endif
+
+              NewAddress = ActuallyFreeAddress(pages, 0); // Start from the first suitable EfiConventionalMemory address.
+              // Allocate the page's address
+              GoTimeStatus = EFI_NOT_FOUND;
+              while(GoTimeStatus != EFI_SUCCESS)
+              {
+                if(GoTimeStatus == EFI_NOT_FOUND)
+                {
+                  // Nope, get another one
+                  NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  // Make sure the new address isn't the known bad one
+                  if(NewAddress == OldAllocatedMemory)
+                  {
+                    // Get a new address if it is
+                    NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  }
+                  // Adresses very well might be > 4GB with the filesizes these are allowed to be
+                }
+                else if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not get an address for ELF pages by page. Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                if(NewAddress == -1)
+                {
+                  // If you somehow get this, you really had no memory free anywhere.
+                  Print(L"Hmm... How did you get here?\r\n");
+                  return GoTimeStatus;
+                }
+
+                GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+              }
+
+              AllocatedMemory = NewAddress;
+
+              while(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+              {
+/* ELF headers don't get copied
+                // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+                if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
+                {
+                  // Do nothing, we're fine
+                  Print(L"System might have been reset. Hopefully no issues.\r\n");
+                  break;
+                }
+                else
+                {
+*/
+    #ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching by page... 0x%llx\r\n", AllocatedMemory);
+    #endif
+
+                  // It's not actually free...
+                  GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                  if(EFI_ERROR(GoTimeStatus))
+                  {
+                    Print(L"Could not free pages for ELF sections by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+
+                  GoTimeStatus = EFI_NOT_FOUND;
+                  while(GoTimeStatus != EFI_SUCCESS)
+                  {
+                    if(GoTimeStatus == EFI_NOT_FOUND)
+                    {
+                      // Nope, get another one
+                      NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      // Make sure the new address isn't the known bad one
+                      if(NewAddress == OldAllocatedMemory)
+                      {
+                        // Get a new address if it is
+                        NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      }
+                      // Address can be > 4GB
+                    }
+                    else if(EFI_ERROR(GoTimeStatus))
+                    {
+                      Print(L"Could not get an address for ELF pages by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                      return GoTimeStatus;
+                    }
+
+                    if(AllocatedMemory == -1)
+                    {
+                      // Well, darn. Something's up with the system memory.
+                      return GoTimeStatus;
+                    }
+
+                    GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+                  } // loop
+
+                  AllocatedMemory = NewAddress;
+
+//                } // else
+              } // end ByPage VerifyZeroMem loop
+  #endif
+            } // End "big guns"
+
+            // Got a good address!
+            Print(L"Found!\r\n");
+
+//          } // End discovery of viable memory address (else)
+          // Can move on now
+        } // End VerifyZeroMem buggy firmware workaround (outermost if)
+#endif
+
 #ifdef ELF_LOADER_DEBUG_ENABLED
-        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+        Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 #endif
 
@@ -1903,8 +2194,276 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, EFI_GRAPHICS_OUTPUT_PROTOCOL_MO
         // Zero the allocated pages
 //        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
 
+#ifndef MEMORY_CHECK_DISABLED
+        // If that memory isn't actually free due to weird firmware behavior...
+        // Iterate through the entirety of what was just allocated and check to make sure it's all zeros
+        // Start buggy firmware workaround
+        if(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+        {
+
+          // From UEFI Specification 2.7, Errata A (http://www.uefi.org/specifications):
+          // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
+          // UEFI OS loaders that are provided by operating system vendors.
+
+          Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+          // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
+          // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
+
+/* Mach-O file headers don't get copied
+          // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+          UINT64 MemCheck = MH_MAGIC_64; // Good thing we know what to expect!
+
+          if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
+          {
+            // Do nothing, we're fine
+            Print(L"System was reset. No issues.\r\n");
+          }
+          else // Not our remains, proceed with discovery of viable memory address
+          {
+*/
+            Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
+
+            // Free the pages (well, return them to the system as they were...)
+            GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"Could not free pages for Mach64 sections. Error code: 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+
+            // NOTE: CANNOT create an array of all compatible free addresses because the array takes up memory. So does the memory map.
+            // This results in a paradox, so we need to scan the memory map every time we need to find a new address...
+
+            // It appears that AllocateAnyPages uses a "MaxAddress" approach. This will go bottom-up instead.
+            EFI_PHYSICAL_ADDRESS NewAddress = 0; // Start at zero
+            EFI_PHYSICAL_ADDRESS OldAllocatedMemory = AllocatedMemory;
+
+            GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress); // Need to check 0x0
+            while(GoTimeStatus != EFI_SUCCESS)
+            { // Keep checking free memory addresses until one works
+
+              if(GoTimeStatus == EFI_NOT_FOUND)
+              {
+                // 0's not a good address (not enough contiguous pages could be found), get another one
+                NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                // Make sure the new address isn't the known bad one
+                if(NewAddress == OldAllocatedMemory)
+                {
+                  // Get a new address if it is
+                  NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                }
+                // Address can be > 4GB
+              }
+              else if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Could not get an address for Mach64 pages. Error code: 0x%llx\r\n", GoTimeStatus);
+                return GoTimeStatus;
+              }
+
+              if(NewAddress == -1)
+              {
+                // If you get this, you had no memory free anywhere.
+                Print(L"No memory marked as EfiConventionalMemory...\r\n");
+                return GoTimeStatus;
+              }
+
+              // Allocate the new address
+              GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+              // This loop shouldn't run more than once, but in the event something is at 0x0 we need to
+              // leave the loop with an allocated address
+
+            }
+
+            // Got a new address that's been allocated--save it
+            AllocatedMemory = NewAddress;
+
+            // Verify it's empty
+            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            { // It's not empty :(
+
+/* Mach-O file headers don't get copied
+              // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+              if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
+              {
+                // Do nothing, we're fine
+                Print(L"System appears to have been reset. No issues.\r\n");
+                break;
+              }
+              else
+              { // Gotta keep looking for a good memory address
+*/
+  #ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching... 0x%llx\r\n", AllocatedMemory);
+  #endif
+
+                // It's not actually free...
+                GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not free pages for Mach64 sections (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                // Allocate a new address
+                GoTimeStatus = EFI_NOT_FOUND;
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                {
+                  if(GoTimeStatus == EFI_NOT_FOUND)
+                  {
+                    // Get an address (ideally, this should be very rare)
+                    NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    // Make sure the new address isn't the known bad one
+                    if(NewAddress == OldAllocatedMemory)
+                    {
+                      // Get a new address if it is
+                      NewAddress = ActuallyFreeAddress(pages, NewAddress);
+                    }
+                    // Address can be > 4GB
+                    // This loop will run until we get a good address (shouldn't be more than once, if ever)
+                  }
+                  else if(EFI_ERROR(GoTimeStatus))
+                  {
+                    // EFI_OUT_OF_RESOURCES means the firmware's just not gonna load anything.
+                    Print(L"Could not get an address for Mach64 pages (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+                  // NOTE: The number of times the message "No more free addresses" pops up
+                  // helps indicate which NewAddress assignment hit the end.
+
+                  GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+                } // loop
+
+                // It's a new address
+                AllocatedMemory = NewAddress;
+
+                // Verify new address is empty (in loop), if not then free it and try again.
+//              } // else
+            } // End VerifyZeroMem while loop
+
+            // Ran out of easy addresses, time for a more thorough check
+            // Hopefully no one ever gets here
+            if(AllocatedMemory == -1)
+            { // NewAddress is also -1
+
+  #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
+              Print(L"No easy addresses found with enough space and containing only zeros.\r\nConsider enabling page-by-page search.\r\n");
+              return GoTimeStatus;
+  #endif
+
+  #ifndef BY_PAGE_SEARCH_DISABLED
+              Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+
+    #ifdef MEMORY_DEBUG_ENABLED
+              Keywait(L"About to search page by page\r\n");
+    #endif
+
+              NewAddress = ActuallyFreeAddress(pages, 0); // Start from the first suitable EfiConventionalMemory address.
+              // Allocate the page's address
+              GoTimeStatus = EFI_NOT_FOUND;
+              while(GoTimeStatus != EFI_SUCCESS)
+              {
+                if(GoTimeStatus == EFI_NOT_FOUND)
+                {
+                  // Nope, get another one
+                  NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  // Make sure the new address isn't the known bad one
+                  if(NewAddress == OldAllocatedMemory)
+                  {
+                    // Get a new address if it is
+                    NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                  }
+                  // Addresses very well might be > 4GB for the filesizes these are allowed to be
+                }
+                else if(EFI_ERROR(GoTimeStatus))
+                {
+                  Print(L"Could not get an address for Mach64 pages by page. Error code: 0x%llx\r\n", GoTimeStatus);
+                  return GoTimeStatus;
+                }
+
+                if(NewAddress == -1)
+                {
+                  // If you somehow get this, you really had no memory free anywhere.
+                  Print(L"Hmm... How did you get here?\r\n");
+                  return GoTimeStatus;
+                }
+
+                GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+              }
+
+              AllocatedMemory = NewAddress;
+
+              while(VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory))
+              {
+/* Mach-O file headers don't get copied
+                // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
+                if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
+                {
+                  // Do nothing, we're fine
+                  Print(L"System might have been reset. Hopefully no issues.\r\n");
+                  break;
+                }
+                else
+                {
+*/
+    #ifdef MEMORY_DEBUG_ENABLED
+                Print(L"Still searching by page... 0x%llx\r\n", AllocatedMemory);
+    #endif
+
+                  // It's not actually free...
+                  GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
+                  if(EFI_ERROR(GoTimeStatus))
+                  {
+                    Print(L"Could not free pages for Mach64 sections by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                    return GoTimeStatus;
+                  }
+
+                  GoTimeStatus = EFI_NOT_FOUND;
+                  while(GoTimeStatus != EFI_SUCCESS)
+                  {
+                    if(GoTimeStatus == EFI_NOT_FOUND)
+                    {
+                      // Nope, get another one
+                      NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      // Make sure the new address isn't the known bad one
+                      if(NewAddress == OldAllocatedMemory)
+                      {
+                        // Get a new address if it is
+                        NewAddress = ActuallyFreeAddressByPage(pages, NewAddress);
+                      }
+                      // Address can be > 4GB
+                    }
+                    else if(EFI_ERROR(GoTimeStatus))
+                    {
+                      Print(L"Could not get an address for Mach64 pages by page (loop). Error code: 0x%llx\r\n", GoTimeStatus);
+                      return GoTimeStatus;
+                    }
+
+                    if(AllocatedMemory == -1)
+                    {
+                      // Well, darn. Something's up with the system memory.
+                      return GoTimeStatus;
+                    }
+
+                    GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &NewAddress);
+                  } // loop
+
+                  AllocatedMemory = NewAddress;
+
+//                } // else
+              } // end ByPage VerifyZeroMem loop
+  #endif
+            } // End "big guns"
+
+            // Got a good address!
+            Print(L"Found!\r\n");
+
+//          } // End discovery of viable memory address (else)
+          // Can move on now
+        } // End VerifyZeroMem buggy firmware workaround (outermost if)
+#endif
+
 #ifdef MACH_LOADER_DEBUG_ENABLED
-        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+        Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 #endif
 
@@ -2318,8 +2877,6 @@ EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRE
 //
 // This is meant to work in the event that AllocateAnyPages fails, but could have other uses. Returns the next page address marked as
 // free (EfiConventionalMemory) that is > the supplied OldAddress.
-//
-// This will take AGES on a system with a lot of garbage-filled RAM. I was actually able to determine that I had a bad overclock with it...
 //
 
 EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRESS OldAddress)
