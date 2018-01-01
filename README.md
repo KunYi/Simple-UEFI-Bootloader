@@ -5,7 +5,9 @@ It's like a much simpler version of GRUB, mainly meant for writing your own oper
 
 **Coming Soon**  
 
-Current status: It works, but there's one annoyance left (see issue #2) before I upload it.
+Current status: It works, and a binary release will happen after a couple final tests. 
+I will also add in multi-GPU framebuffer support. 
+My goal is to have the first binary release before the end of the week (it's now 1/1/2018). 
   
 A simple bare-metal kernel using this bootloader will be uploaded here:  
 https://github.com/KNNSpeed/Simple-Kernel/
