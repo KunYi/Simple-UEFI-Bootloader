@@ -5,19 +5,28 @@ It's like a much simpler version of GRUB, mainly meant for writing your own oper
 
 **Coming Soon**  
 
-Current status: It works, and a binary release will happen after a couple final tests. 
-I will also add in multi-GPU framebuffer support. 
-My goal is to have the first binary release before the end of the week (it's now 1/1/2018). 
+Current status: It works, and a binary release should happen later today (1/5/2018). Loader block's in the source code for anyone to look at.
   
 A simple bare-metal kernel using this bootloader will be uploaded here:  
 https://github.com/KNNSpeed/Simple-Kernel/
 
-Why not upload it as-is?  
-Consider the fact that, once something is released online, it can very rapidly disseminate all over the place. If that ever were to happen here, it would be a shame if what spread were an ugly mess. The bootloader.c file cannot be compiled without its headers, and it's just here to show that it does in fact exist.
-  
 A full description of how to actually compile, etc. will be posted here. I will also be including a full, multi-platform portable build system I designed that makes compiling as simple as typing ".\Compile" in the command line and uses GCC/binutils, MinGW-w64, etc.
 
 Additionally, there are some parts of GNU-EFI that needed to be updated and augmented, so that will be included out of necessity.
   
 "A delayed game is eventually good, but a rushed game is forever bad."  
 -Shigeru Miyamoto  
+
+Some features to look forward to:  
+-UEFI 2.x support  
+-Loads kernels compiled as Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O (see my Simple-Kernel repository for proper compilation options)  
+-Multi-GPU framebuffer support (typically only works with one monitor per GPU due to how most GPU firmwares are implemented)  
+-ACPI support  
+-The ability to get the full system memory map to do whatever you want with it  
+  
+System Recommendations:  
+-x86-64 architecture (won't work with anything else)  
+-Secure Boot MUST be disabled  
+-More than 4GB RAM (seems to work OK with less, e.g. Hyper-V with 1GB)  
+-A graphics card (Intel, AMD, NVidia, etc.) with UEFI GOP support  
+-A keyboard  
