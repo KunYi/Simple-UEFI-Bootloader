@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader
 //==================================================================================================================================
 //
-// Version 0.99
+// Version 0.999
 //
 // Author:
 //  KNNSpeed
@@ -52,16 +52,26 @@
 //NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
 // left to right while the byte order is reversed (right to left)!!
 //
-//TODO: Debug binary has these uncommented (minus memory), release has them commented
-#define MAIN_DEBUG_ENABLED
-#define GOP_DEBUG_ENABLED
-#define LOADER_DEBUG_ENABLED
-#define PE_LOADER_DEBUG_ENABLED
-#define DOS_LOADER_DEBUG_ENABLED
-#define ELF_LOADER_DEBUG_ENABLED
-#define MACH_LOADER_DEBUG_ENABLED
-#define MEMMAP_PRINT_ENABLED
-//#define MEMORY_DEBUG_ENABLED // Potential massive performance hit when enabling this and searching for free RAM page-by-page (it prints them all out)
+//TODO: Debug binary has this uncommented, release has it commented
+//#define ENABLE_DEBUG // Master debug enable switch
+
+#ifdef ENABLE_DEBUG
+    #define SHOW_KERNEL_METADATA
+    #define DISABLE_UEFI_WATCHDOG_TIMER
+    #define MAIN_DEBUG_ENABLED
+    #define GOP_DEBUG_ENABLED
+//    #define GOP_NAMING_DEBUG_ENABLED // Unimplemented due to unimplemented naming section
+    #define LOADER_DEBUG_ENABLED
+    #define PE_LOADER_DEBUG_ENABLED
+    #define DOS_LOADER_DEBUG_ENABLED
+    #define ELF_LOADER_DEBUG_ENABLED
+    #define MACH_LOADER_DEBUG_ENABLED
+    #define FINAL_LOADER_DEBUG_ENABLED
+
+    #define MEMMAP_PRINT_ENABLED
+    #define MEMORY_CHECK_INFO
+//    #define MEMORY_DEBUG_ENABLED // Potential massive performance hit when enabling this and searching for free RAM page-by-page (it prints them all out)
+#endif
 
 //==================================================================================================================================
 // Memory Allocation Debugging
@@ -93,22 +103,24 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
 
   // Initialize the GNU-EFI library
   InitializeLib(ImageHandle, SystemTable);
-  /*
+/*
   From InitializeLib:
 
   ST = SystemTable;
   BS = SystemTable->BootServices;
   RT = SystemTable->RuntimeServices;
 
-  */
+*/
   EFI_STATUS Status;
 
+#ifdef DISABLE_UEFI_WATCHDOG_TIMER
   // Disable watchdog timer for debugging
   Status = BS->SetWatchdogTimer (0, 0, 0, NULL);
   if(EFI_ERROR(Status))
   {
     Print(L"Error stopping watchdog, timeout still counting down...\r\n");
   }
+#endif
 
   // Print out general system info
   EFI_TIME Now;
@@ -199,6 +211,7 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
   if(EFI_ERROR(Status))
   {
     Print(L"InitUEFI_GOP error. 0x%llx\r\n", Status);
+    Keywait(L"\0");
     return Status;
   }
 
@@ -340,7 +353,27 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   UINT64 DevNum = 0;
   EFI_INPUT_KEY Key;
 
+  CHAR16 * PxFormats[] = {
+      L"RGBReserved 8Bpp",
+      L"BGRReserved 8Bpp",
+      L"PixelBitMask",
+      L"PixelBltOnly",
+      L"PixelFormatMax"
+  };
+
   Key.UnicodeChar = 0;
+
+// Commented out on account of GPU name search's not working right
+/*
+  UINTN Name2HandlesInHandleBuffer2 = 0; // Number of discovered handles (devices)
+  // There was only supposed to be one of these, but for some reason vendors go all over the place...
+  CHAR8 LanguageToUse[6] = {'e','n','-','U','S','\0'};
+  CHAR8 LanguageToUse2[3] = {'e','n','\0'};
+  CHAR8 LanguageToUse3[4] = {'e','n','g','\0'};
+
+  CHAR16 *DriverDisplayName = L"No Driver Name";
+  CHAR16 *ControllerDisplayName = L"No Controller Name";
+*/
 
   // We can pick which graphics output device we want (handy for multi-GPU setups)...
   EFI_HANDLE *GraphicsHandles; // Array of discovered graphics handles that support the Graphics Output Protocol
@@ -350,29 +383,153 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Print(L"GraphicsTable LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
     return GOPStatus;
   }
-  Print(L"There are %llu GOP-supporting devices.\r\n", NumHandlesInHandleBuffer);
 
+  Print(L"\r\n");
+  if(NumHandlesInHandleBuffer == 1) // Grammar
+  {
+    Print(L"There is %llu UEFI graphics device:\r\n", NumHandlesInHandleBuffer);
+  }
+  else
+  {
+    Print(L"There are %llu UEFI graphics devices:\r\n", NumHandlesInHandleBuffer);
+  }
+
+// NOTE: This commented out section is an attempt at getting the GPU names. For some reason, it just doesn't always work.
+// Maybe it's just vendors not properly supporting the spec, if it's not a semantic bug?
+// If someone comes across this one day and can figure it out, it'll get implemented, but it's not particularly important.
+/*
+  // List GPUs (if they don't have Name2 protocol support, they'll be named "-1")
+  // List all Name2Handles in system because we need them
+  EFI_HANDLE *Name2Handles; // Array of discovered handles that support the NAME2 protocol
+  GOPStatus = BS->LocateHandleBuffer(ByProtocol, &ComponentName2Protocol, NULL, &Name2HandlesInHandleBuffer2, &Name2Handles); // This automatically allocates pool for GraphicsHandles
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"Name2Handles LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+  Print(L"Number of Name2Handles: %llu\r\n", Name2HandlesInHandleBuffer2);
+#endif
+
+  for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
+  {
+    DriverDisplayName = L"No Driver Name";
+    ControllerDisplayName = L"No Controller Name";
+
+    for(UINT64 k = 0; k < Name2HandlesInHandleBuffer2; k++)
+    {
+      EFI_COMPONENT_NAME2_PROTOCOL *DeviceName;
+//
+//      GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_COMPONENT_NAME2_PROTOCOL), (void**)&DeviceName); // All EfiBootServicesData get freed on ExitBootServices()
+//      if(EFI_ERROR(GOPStatus))
+//      {
+//        Print(L"DeviceName AllocatePool error. 0x%llx\r\n", GOPStatus);
+//        return GOPStatus;
+//      }
+
+      GOPStatus = BS->OpenProtocol(Name2Handles[k], &ComponentName2Protocol, (void**)&DeviceName, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"DeviceName OpenProtocol error. 0x%llx\r\n", GOPStatus);
+        return GOPStatus;
+      }
+
+      GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse, &DriverDisplayName);
+      if(GOPStatus == EFI_UNSUPPORTED)
+      {
+        GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse2, &DriverDisplayName);
+        if(GOPStatus == EFI_UNSUPPORTED)
+        {
+          GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse3, &DriverDisplayName);
+        }
+      }
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"DeviceName GetDriverName error. 0x%llx\r\n", GOPStatus);
+        if(GOPStatus == EFI_UNSUPPORTED)
+        {
+          // This is the format of the language, since it isn't "en-US" or "en"
+          // It will need to be implemented like the above arrays
+          Print(L"First 10 language characters look like this:\r\n");
+          for(UINT32 p = 0; p < 10; p++)
+          {
+            Print(L"%c", DeviceName->SupportedLanguages[p]);
+          }
+          Print(L"\r\n");
+        }
+        return GOPStatus;
+      }
+
+      GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse, &ControllerDisplayName);
+      if(GOPStatus == EFI_UNSUPPORTED)
+      {
+        GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse2, &ControllerDisplayName);
+        if(GOPStatus == EFI_UNSUPPORTED)
+        {
+          GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse3, &ControllerDisplayName);
+        }
+      }
+#ifdef GOP_NAMING_DEBUG_ENABLED
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"DeviceName GetControllerName error. 0x%llx\r\n", GOPStatus);
+      }
+      Print(L"%llu. 0x%llx, 0x%llx - %s: %s\r\n", k, GraphicsHandles[DevNum], Name2Handles[k], DriverDisplayName, ControllerDisplayName);
+      Keywait(L"\0");
+#endif
+      if(GOPStatus == EFI_SUCCESS)
+      {
+        // Found the name and it has been assigned. No need to keep looking.
+        break;
+      }
+      // Did not find a name for some reason
+      else if((k == Name2HandlesInHandleBuffer2 - 1) && (GOPStatus != EFI_SUCCESS))
+      {
+        // You know, we have specifications for a reason.
+        // Those who refuse to follow them get this.
+        DriverDisplayName = L"No Driver Name";
+        ControllerDisplayName = L"No Controller Name";
+      }
+    }
+    Print(L"%c. 0x%llx - %s: %s\r\n", DevNum + 0x30, GraphicsHandles[DevNum], DriverDisplayName, ControllerDisplayName);
+  }
+  Print(L"\r\n");
+
+  // Done with this massive array
+  GOPStatus = BS->FreePool(Name2Handles);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"Name2Handles FreePool error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+*/
+
+  for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
+  {
+    Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
+  }
+  Print(L"\r\n");
+
+  // If applicable, select a GPU. Otherwise, skip all the way to single GPU configuration.
   if(NumHandlesInHandleBuffer > 1)
   {
-    Print(L"Multiple GPUs detected.\r\n");
-    for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
-    {
-      Print(L"%c. 0x%llx\r\n", DevNum + 0x30, GraphicsHandles[DevNum]); // TODO: Get the GPU name
-    }
+    Print(L"Multiple GPUs detected:\r\n");
 
     // Using this as the choice holder
-    // This sets the default option
-    DevNum = 1;
+    // This sets the default option... Which doesn't really matter since there's no timer on this menu :/
+    DevNum = 2;
 
     // User selection
     while(0x30 > Key.UnicodeChar || Key.UnicodeChar > 0x33)
     {
-      Print(L"\r\nConfigure all or configure one?\r\n");
+      Print(L"Configure all or configure one?\r\n");
       Print(L"0. Configure all individually\r\n");
       Print(L"1. Configure one\r\n");
       Print(L"2. Configure all to use default resolution of connected active display (usually native)\r\n");
       Print(L"3. Configure all to use 1024x768\r\n");
       Print(L"Note: The \"active display(s)\" on a GPU are determined by the GPU's firmware\r\n");
+      Print(L"\r\nPlease select an option.\r\n");
       while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
       Print(L"Option %c selected.\r\n\n", Key.UnicodeChar);
     }
@@ -386,7 +543,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-//    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE FrameBufferArray[Graphics->NumberOfFrameBuffers];
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
@@ -394,12 +550,10 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       return GOPStatus;
     }
 
-//    *(Graphics->GPUArray) = *FrameBufferArray; // Get the base address of the array
-
     // Configure
     for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
     {
-      Print(L"%c. 0x%llx:\r\n", DevNum + 0x30, GraphicsHandles[DevNum]); // TODO: Get the GPU name
+      Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
 
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Allocating GOP pools...\r\n");
@@ -430,7 +584,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GOP Mode AllocatePool error. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-      // Mode->Info gets reserved once SizeOfInfo is determined.
+      // Mode->Info gets reserved once SizeOfInfo is determined (via QueryMode()).
 
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
@@ -477,16 +631,24 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       }
 #endif
 
-      Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
+      if(GOPTable->Mode->MaxMode == 1) // Grammar
+      {
+        Print(L"%u available graphics mode found.\r\n", GOPTable->Mode->MaxMode);
+      }
+      else
+      {
+        Print(L"%u available graphics modes found.\r\n", GOPTable->Mode->MaxMode);
+      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Keywait(L"\r\nGetting list of supported modes...\r\n");
+      Keywait(L"Getting list of supported modes...\r\n");
 #endif
 
       // Get supported graphics modes
       EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo2; // Querymode allocates GOPInfo
       while(0x30 > Key.UnicodeChar || Key.UnicodeChar > (0x30 + GOPTable->Mode->MaxMode - 1))
       {
+        Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
         for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
         {
           GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -495,12 +657,12 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
             Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
             return GOPStatus;
           }
-          Print(L"%c. %ux%u\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution);
+          Print(L"%c. %ux%u, PxPerScanLine: %u, PxFormat: %s\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution, GOPInfo2->PixelsPerScanLine, PxFormats[GOPInfo2->PixelFormat]);
         }
 
-        Print(L"Select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+        Print(L"Please select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
         while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
-        Print(L"Selected graphics mode %c.\r\n", Key.UnicodeChar);
+        Print(L"Selected graphics mode %c.\r\n\n", Key.UnicodeChar);
       }
       mode = (UINT32)(Key.UnicodeChar - 0x30);
       Key.UnicodeChar = 0;
@@ -523,32 +685,11 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-    /*
+
 #ifdef GOP_DEBUG_ENABLED
       Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
 #endif
 
-      // Reserve memory for graphics output mode information to preserve it
-      GOPStatus = BS->FreePool(GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-        Keywait(L"\0");
-      }
-
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
-        return *(GOPTable->Mode);
-      }
-
-#ifdef GOP_DEBUG_ENABLED
-      Keywait(L"Mode info pool allocated.\r\n");
-#endif
-
-      *GOPTable->Mode->Info = *GOPInfo;
-    */
       // Allocate graphics mode info
       GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
@@ -612,19 +753,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Keywait(L"\0");
       }
 */
-
-#ifdef GOP_DEBUG_ENABLED
-      // Data verification of the GOPTable structure
-      Print(L"\r\nCurrent GOP Mode Info:\r\n");
-      Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
-      Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
-
-      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
-      Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
-      Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
-      Keywait(L"\0");
-#endif
-
     } // End for each individual DevNum
   }
   else if((NumHandlesInHandleBuffer > 1) && (DevNum == 1))
@@ -633,7 +761,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = 1;
-//    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE FrameBufferArray[Graphics->NumberOfFrameBuffers];
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
@@ -648,9 +775,9 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     {
       for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
       {
-        Print(L"%c. 0x%llx\r\n", DevNum + 0x30, GraphicsHandles[DevNum]);
+        Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
       }
-      Print(L"Select an output device. (0 - %llu)\r\n", NumHandlesInHandleBuffer - 1);
+      Print(L"Please select an output device. (0 - %llu)\r\n", NumHandlesInHandleBuffer - 1);
       while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
       Print(L"Device %c selected.\r\n", Key.UnicodeChar);
     }
@@ -659,9 +786,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
 #ifdef GOP_DEBUG_ENABLED
     Print(L"Using handle %llu...\r\n", DevNum);
-#endif
 
-#ifdef GOP_DEBUG_ENABLED
     Keywait(L"Allocating GOP pools...\r\n");
 #endif
 
@@ -674,14 +799,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
-
-  /*
-    // These are all the same
-    Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
-    Print(L"sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL));
-    Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
-    Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
-  */
 
     // Reserve memory for graphics output mode to preserve it
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
@@ -737,7 +854,14 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     }
 #endif
 
-    Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
+    if(GOPTable->Mode->MaxMode == 1) // Grammar
+    {
+      Print(L"%u available graphics mode found.\r\n", GOPTable->Mode->MaxMode);
+    }
+    else
+    {
+      Print(L"%u available graphics modes found.\r\n", GOPTable->Mode->MaxMode);
+    }
 
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"\r\nGetting list of supported modes...\r\n");
@@ -747,6 +871,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo2; // Querymode allocates GOPInfo
     while(0x30 > Key.UnicodeChar || Key.UnicodeChar > (0x30 + GOPTable->Mode->MaxMode - 1))
     {
+      Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
       for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
       {
         GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -755,12 +880,12 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
           Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
           return GOPStatus;
         }
-        Print(L"%c. %ux%u\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution);
+        Print(L"%c. %ux%u, PxPerScanLine: %u, PxFormat: %s\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution, GOPInfo2->PixelsPerScanLine, PxFormats[GOPInfo2->PixelFormat]);
       }
 
-      Print(L"Select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+      Print(L"Please select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
       while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
-      Print(L"Selected graphics mode %c.\r\n", Key.UnicodeChar);
+      Print(L"Selected graphics mode %c.\r\n\n", Key.UnicodeChar);
     }
     mode = (UINT32)(Key.UnicodeChar - 0x30);
     Key.UnicodeChar = 0;
@@ -783,32 +908,11 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
-  /*
+
 #ifdef GOP_DEBUG_ENABLED
     Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
 #endif
 
-    // Reserve memory for graphics output mode information to preserve it
-    GOPStatus = BS->FreePool(GOPTable->Mode->Info);
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-      Keywait(L"\0");
-    }
-
-    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
-      return *(GOPTable->Mode);
-    }
-
-#ifdef GOP_DEBUG_ENABLED
-    Keywait(L"Mode info pool allocated.\r\n");
-#endif
-
-    *GOPTable->Mode->Info = *GOPInfo;
-  */
     DevNum = 0; // There's only one item in the array
     // Allocate graphics mode info
     GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
@@ -873,18 +977,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"\0");
     }
 */
-
-#ifdef GOP_DEBUG_ENABLED
-    // Data verification of the GOPTable structure
-    Print(L"\r\nCurrent GOP Mode Info:\r\n");
-    Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
-    Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
-
-    Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
-    Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
-    Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
-    Keywait(L"\0");
-#endif
   // End configure one only
   }
   else if((NumHandlesInHandleBuffer > 1) && (DevNum == 2))
@@ -893,7 +985,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-//    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE FrameBufferArray[Graphics->NumberOfFrameBuffers];
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
@@ -901,12 +992,10 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       return GOPStatus;
     }
 
-//    *(Graphics->GPUArray) = *FrameBufferArray; // Get the base address of the array
-
     // Configure
     for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
     {
-      Print(L"%c. 0x%llx:\r\n", DevNum + 0x30, GraphicsHandles[DevNum]); // TODO: Get the GPU name
+      Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
 
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Allocating GOP pools...\r\n");
@@ -921,14 +1010,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-
-    /*
-      // These are all the same
-      Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
-      Print(L"sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL));
-      Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
-      Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
-    */
 
       // Reserve memory for graphics output mode to preserve it
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
@@ -950,7 +1031,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         return GOPStatus;
       }
 
-#ifdef GOP_DEBUG_ENABLED // TODO: This debug section is way redundant for mode = 0
+#ifdef GOP_DEBUG_ENABLED
       Keywait(L"OpenProtocol passed.\r\n");
 
       Print(L"Current GOP Mode Info:\r\n");
@@ -958,36 +1039,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", GOPTable->Mode->FrameBufferBase, GOPTable->Mode->FrameBufferSize); // Per spec, the FrameBufferBase might be 0 until SetMode is called
 
       Keywait(L"\0");
-
-      EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo; // Querymode allocates GOPInfo
-      // Get detailed info about supported graphics modes
-      for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
-      {
-        GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo); // IN IN OUT OUT
-        if(EFI_ERROR(GOPStatus))
-        {
-          Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
-          return GOPStatus;
-        }
-        Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPInfo->Version, GOPInfo->HorizontalResolution, GOPInfo->VerticalResolution);
-        Print(L"PxPerScanLine: %u\r\n", GOPInfo->PixelsPerScanLine);
-        Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPInfo->PixelFormat, GOPInfo->PixelInformation.RedMask, GOPInfo->PixelInformation.GreenMask, GOPInfo->PixelInformation.BlueMask, GOPInfo->PixelInformation.ReservedMask);
-        Keywait(L"\0");
-      }
-
-      // Don't need GOPInfo anymore
-      GOPStatus = BS->FreePool(GOPInfo);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-        Keywait(L"\0");
-      }
-#endif
-
-      Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
-
-#ifdef GOP_DEBUG_ENABLED
-      Keywait(L"\r\nGetting list of supported modes...\r\n");
 #endif
 
       // Set mode 0
@@ -1003,32 +1054,14 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-    /*
-#ifdef GOP_DEBUG_ENABLED
-      Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
-#endif
-
-      // Reserve memory for graphics output mode information to preserve it
-      GOPStatus = BS->FreePool(GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-        Keywait(L"\0");
-      }
-
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
-        return *(GOPTable->Mode);
-      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Keywait(L"Mode info pool allocated.\r\n");
+      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
+      Print(L"PxPerScanLine: %u\r\n", GOPTable->Mode->Info->PixelsPerScanLine);
+      Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPTable->Mode->Info->PixelFormat, GOPTable->Mode->Info->PixelInformation.RedMask, GOPTable->Mode->Info->PixelInformation.GreenMask, GOPTable->Mode->Info->PixelInformation.BlueMask, GOPTable->Mode->Info->PixelInformation.ReservedMask);
+      Keywait(L"\0");
 #endif
 
-      *GOPTable->Mode->Info = *GOPInfo;
-    */
       // Allocate graphics mode info
       GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
@@ -1092,18 +1125,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Keywait(L"\0");
       }
 */
-#ifdef GOP_DEBUG_ENABLED
-      // Data verification of the GOPTable structure
-      Print(L"\r\nCurrent GOP Mode Info:\r\n");
-      Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
-      Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
-
-      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
-      Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
-      Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
-      Keywait(L"\0");
-#endif
-
     } // End for each individual DevNum
     // End default res for each
   }
@@ -1114,7 +1135,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-//    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE FrameBufferArray[Graphics->NumberOfFrameBuffers];
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
@@ -1122,12 +1142,10 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       return GOPStatus;
     }
 
-//    *(Graphics->GPUArray) = *FrameBufferArray; // Get the base address of the array
-
     // Configure
     for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
     {
-      Print(L"%c. 0x%llx:\r\n", DevNum + 0x30, GraphicsHandles[DevNum]); // TODO: Get the GPU name
+      Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
 
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Allocating GOP pools...\r\n");
@@ -1142,14 +1160,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-
-    /*
-      // These are all the same
-      Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
-      Print(L"sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL));
-      Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
-      Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
-    */
 
       // Reserve memory for graphics output mode to preserve it
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
@@ -1171,7 +1181,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         return GOPStatus;
       }
 
-#ifdef GOP_DEBUG_ENABLED // TODO: This debug section is way redundant for 1024x768
+#ifdef GOP_DEBUG_ENABLED
       Keywait(L"OpenProtocol passed.\r\n");
 
       Print(L"Current GOP Mode Info:\r\n");
@@ -1179,36 +1189,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", GOPTable->Mode->FrameBufferBase, GOPTable->Mode->FrameBufferSize); // Per spec, the FrameBufferBase might be 0 until SetMode is called
 
       Keywait(L"\0");
-
-      EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo; // Querymode allocates GOPInfo
-      // Get detailed info about supported graphics modes
-      for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
-      {
-        GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo); // IN IN OUT OUT
-        if(EFI_ERROR(GOPStatus))
-        {
-          Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
-          return GOPStatus;
-        }
-        Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPInfo->Version, GOPInfo->HorizontalResolution, GOPInfo->VerticalResolution);
-        Print(L"PxPerScanLine: %u\r\n", GOPInfo->PixelsPerScanLine);
-        Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPInfo->PixelFormat, GOPInfo->PixelInformation.RedMask, GOPInfo->PixelInformation.GreenMask, GOPInfo->PixelInformation.BlueMask, GOPInfo->PixelInformation.ReservedMask);
-        Keywait(L"\0");
-      }
-
-      // Don't need GOPInfo anymore
-      GOPStatus = BS->FreePool(GOPInfo);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-        Keywait(L"\0");
-      }
-#endif
-
-      Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
-
-#ifdef GOP_DEBUG_ENABLED
-      Keywait(L"\r\nGetting list of supported modes...\r\n");
 #endif
 
       // Get supported graphics modes
@@ -1225,6 +1205,11 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         {
           break; // Use this mode
         }
+      }
+      if((mode == GOPTable->Mode->MaxMode) && (mode != 0)) // Hyper-V only has a 1024x768 mode, and it's mode 0
+      {
+        Print(L"Odd. No 1024x768 mode found. Using mode 0...\r\n");
+        mode = 0;
       }
 
       // Don't need GOPInfo2 anymore
@@ -1245,32 +1230,14 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-    /*
-#ifdef GOP_DEBUG_ENABLED
-      Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
-#endif
-
-      // Reserve memory for graphics output mode information to preserve it
-      GOPStatus = BS->FreePool(GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-        Keywait(L"\0");
-      }
-
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
-        return *(GOPTable->Mode);
-      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Keywait(L"Mode info pool allocated.\r\n");
+      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
+      Print(L"PxPerScanLine: %u\r\n", GOPTable->Mode->Info->PixelsPerScanLine);
+      Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPTable->Mode->Info->PixelFormat, GOPTable->Mode->Info->PixelInformation.RedMask, GOPTable->Mode->Info->PixelInformation.GreenMask, GOPTable->Mode->Info->PixelInformation.BlueMask, GOPTable->Mode->Info->PixelInformation.ReservedMask);
+      Keywait(L"\0");
 #endif
 
-      *GOPTable->Mode->Info = *GOPInfo;
-    */
       // Allocate graphics mode info
       GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
@@ -1334,18 +1301,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Keywait(L"\0");
       }
 */
-#ifdef GOP_DEBUG_ENABLED
-      // Data verification of the GOPTable structure
-      Print(L"\r\nCurrent GOP Mode Info:\r\n");
-      Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
-      Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
-
-      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
-      Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
-      Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
-      Keywait(L"\0");
-#endif
-
     } // End for each individual DevNum
     // End 1024x768
   }
@@ -1355,7 +1310,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = 1;
-//    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE FrameBufferArray[Graphics->NumberOfFrameBuffers];
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
@@ -1368,10 +1322,8 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     DevNum = 0;
 
 #ifdef GOP_DEBUG_ENABLED
-    Print(L"One GPU detected\r\n");
-#endif
+    Print(L"One GPU detected.\r\n");
 
-#ifdef GOP_DEBUG_ENABLED
     Keywait(L"Allocating GOP pools...\r\n");
 #endif
 
@@ -1384,14 +1336,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
-
-  /*
-    // These are all the same
-    Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
-    Print(L"sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL));
-    Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
-    Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
-  */
 
     // Reserve memory for graphics output mode to preserve it
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
@@ -1447,7 +1391,14 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     }
 #endif
 
-    Print(L"\r\n%u available graphics modes found.\r\nCurrent Mode: %u\r\n", GOPTable->Mode->MaxMode, GOPTable->Mode->Mode);
+    if(GOPTable->Mode->MaxMode == 1) // Grammar
+    {
+      Print(L"%u available graphics mode found.\r\n", GOPTable->Mode->MaxMode);
+    }
+    else
+    {
+      Print(L"%u available graphics modes found.\r\n", GOPTable->Mode->MaxMode);
+    }
 
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"\r\nGetting list of supported modes...\r\n");
@@ -1457,6 +1408,7 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo2; // Querymode allocates GOPInfo
     while(0x30 > Key.UnicodeChar || Key.UnicodeChar > (0x30 + GOPTable->Mode->MaxMode - 1))
     {
+      Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
       for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
       {
         GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -1465,12 +1417,12 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
           Print(L"GraphicsTable QueryMode error. 0x%llx\r\n", GOPStatus);
           return GOPStatus;
         }
-        Print(L"%c. %ux%u\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution);
+        Print(L"%c. %ux%u, PxPerScanLine: %u, PxFormat: %s\r\n", mode + 0x30, GOPInfo2->HorizontalResolution, GOPInfo2->VerticalResolution, GOPInfo2->PixelsPerScanLine, PxFormats[GOPInfo2->PixelFormat]);
       }
 
-      Print(L"Select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+      Print(L"Please select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
       while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
-      Print(L"Selected graphics mode %c.\r\n", Key.UnicodeChar);
+      Print(L"Selected graphics mode %c.\r\n\n", Key.UnicodeChar);
     }
     mode = (UINT32)(Key.UnicodeChar - 0x30);
     Key.UnicodeChar = 0;
@@ -1493,32 +1445,10 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
-    /*
+
 #ifdef GOP_DEBUG_ENABLED
     Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
 #endif
-
-    // Reserve memory for graphics output mode information to preserve it
-    GOPStatus = BS->FreePool(GOPTable->Mode->Info);
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"Error freeing GOPInfo pool. 0x%llx\r\n", GOPStatus);
-      Keywait(L"\0");
-    }
-
-    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&GOPTable->Mode->Info);
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
-      return *(GOPTable->Mode);
-    }
-
-#ifdef GOP_DEBUG_ENABLED
-    Keywait(L"Mode info pool allocated.\r\n");
-#endif
-
-    *GOPTable->Mode->Info = *GOPInfo;
-  */
 
     // Allocate graphics mode info
     GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
@@ -1583,17 +1513,6 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"\0");
     }
 */
-#ifdef GOP_DEBUG_ENABLED // TODO: put this in a for loop after freeing GraphicsHandles
-    // Data verification of the GOPTable structure
-    Print(L"\r\nCurrent GOP Mode Info:\r\n");
-    Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
-    Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
-
-    Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
-    Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
-    Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
-    Keywait(L"\0");
-#endif
   // End single GPU
   }
 
@@ -1605,8 +1524,24 @@ EFI_STATUS EFIAPI InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Keywait(L"\0");
   }
 
+#ifdef GOP_DEBUG_ENABLED
+    // Data verification
+  for(DevNum = 0; DevNum < Graphics->NumberOfFrameBuffers; DevNum++)
+  {
+    Print(L"\r\nCurrent GOP Mode Info:\r\n");
+    Print(L"Max Mode supported: %u, Current Mode: %u\r\nSize of Mode Info Structure: %llu Bytes\r\n", Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].SizeOfInfo);
+    Print(L"FrameBufferBase: 0x%016llx, FrameBufferSize: 0x%llx\r\n", Graphics->GPUArray[DevNum].FrameBufferBase, Graphics->GPUArray[DevNum].FrameBufferSize);
+
+    Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", Graphics->GPUArray[DevNum].Mode, Graphics->GPUArray[DevNum].MaxMode - 1, Graphics->GPUArray[DevNum].SizeOfInfo, Graphics->GPUArray[DevNum].Info->Version, Graphics->GPUArray[DevNum].Info->HorizontalResolution, Graphics->GPUArray[DevNum].Info->VerticalResolution);
+    Print(L"PxPerScanLine: %u\r\n", Graphics->GPUArray[DevNum].Info->PixelsPerScanLine);
+    Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
+    Keywait(L"\0");
+  }
+#endif
+
   return GOPStatus;
 }
+// For reference, so no one has to go hunting for them
 /*
 struct _EFI_GRAPHICS_OUTPUT_PROTOCOL {
   EFI_GRAPHICS_OUTPUT_PROTOCOL_QUERY_MODE  QueryMode; // function
@@ -1737,7 +1672,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   }
 #endif
 
+#ifdef LOADER_DEBUG_ENABLED
   Print(L"GO GO GO!!!\r\n");
+#endif
+
   EFI_STATUS GoTimeStatus;
 
   // Load file called Kernel64 from this drive's root
@@ -1806,7 +1744,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, L"Kernel64", EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
 	if (EFI_ERROR(GoTimeStatus))
   {
-		ST->ConOut->OutputString(ST->ConOut, L"Kernel file is missing\r\n");
+		ST->ConOut->OutputString(ST->ConOut, L"Kernel64 file is missing\r\n");
 		return GoTimeStatus;
 	}
 
@@ -1847,6 +1785,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     return GoTimeStatus;
   }
 
+#ifdef SHOW_KERNEL_METADATA
   // Show metadata
   Print(L"FileName: %s\r\n", FileInfo->FileName);
   Print(L"Size: %llu\r\n", FileInfo->Size);
@@ -1854,7 +1793,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   Print(L"PhysicalSize: %llu\r\n", FileInfo->PhysicalSize);
   Print(L"Attribute: %llx\r\n", FileInfo->Attribute);
 /*
-  Attributes:
+  NOTE: Attributes:
 
   #define EFI_FILE_READ_ONLY 0x0000000000000001
   #define EFI_FILE_HIDDEN 0x0000000000000002
@@ -1867,6 +1806,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 */
   Print(L"Created: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", FileInfo->CreateTime.Month, FileInfo->CreateTime.Day, FileInfo->CreateTime.Year, FileInfo->CreateTime.Hour, FileInfo->CreateTime.Minute, FileInfo->CreateTime.Second, FileInfo->CreateTime.Nanosecond);
   Print(L"Last Modified: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", FileInfo->ModificationTime.Month, FileInfo->ModificationTime.Day, FileInfo->ModificationTime.Year, FileInfo->ModificationTime.Hour, FileInfo->ModificationTime.Minute, FileInfo->ModificationTime.Second, FileInfo->ModificationTime.Nanosecond);
+#endif
 
 #ifdef LOADER_DEBUG_ENABLED
   Keywait(L"GetInfo memory allocated and populated.\r\n");
@@ -1876,6 +1816,8 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 //  UINTN size = 0x40; // Size of DOS header
   UINTN size = sizeof(IMAGE_DOS_HEADER);
   IMAGE_DOS_HEADER DOSheader;
+
+// Don't need to allocate memory for non-pointer DOS headers
 /*
   GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&DOSheader);
   if(EFI_ERROR(GoTimeStatus))
@@ -1884,7 +1826,6 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     return GoTimeStatus;
   }
 */
-// Don't need to allocate memory for non-pointer DOS headers
 
   GoTimeStatus = KernelFile->Read(KernelFile, &size, &DOSheader);
   if(EFI_ERROR(GoTimeStatus))
@@ -1922,6 +1863,8 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 //    size = 4 + IMAGE_SIZEOF_FILE_HEADER + IMAGE_SIZEOF_NT_OPTIONAL64_HEADER; // 264 bytes
     size = sizeof(IMAGE_NT_HEADERS64);
     IMAGE_NT_HEADERS64 PEHeader;
+
+// Don't need to allocate memory for non-pointer PE headers
 /*
     GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&PEHeader);
     if(EFI_ERROR(GoTimeStatus))
@@ -1930,7 +1873,6 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
       return GoTimeStatus;
     }
 */
-// Don't need to allocate memory for non-pointer PE headers
 
     GoTimeStatus = KernelFile->Read(KernelFile, &size, &PEHeader);
     if(EFI_ERROR(GoTimeStatus))
@@ -1949,7 +1891,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     // file start"
     if(PEHeader.Signature == IMAGE_NT_SIGNATURE)
     {
-      //PE
+      // PE
 
 #ifdef LOADER_DEBUG_ENABLED
       Keywait(L"PE header passed.\r\n");
@@ -1957,7 +1899,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 
       if(PEHeader.FileHeader.Machine == IMAGE_FILE_MACHINE_X64 && PEHeader.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) // PE Headers have Signature, FileHeader, and OptionalHeader
       {
-        //PE32+
+        // PE32+
 
 #ifdef LOADER_DEBUG_ENABLED
         Keywait(L"PE32+ header passed.\r\n");
@@ -1987,15 +1929,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 //        Print(L"section_headers_table_pointer: 0x%llx\r\n&section_headers_table[0]: 0x%llx\r\n", section_headers_table_pointer, &section_headers_table[0]);
         Keywait(L"\0");
 #endif
-/*
+
+        // Doesn't look like section_headers_table needs to be explicitly allocated memory
+      /*
         GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&section_headers_table);
         if(EFI_ERROR(GoTimeStatus))
         {
           Print(L"Section headers table AllocatePool error. 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
-*/
-// Doesn't look like section_headers_table needs to be explicitly allocated memory
+      */
 
         // Cursor is already at the end of the PE Header
         GoTimeStatus = KernelFile->Read(KernelFile, &size, &section_headers_table[0]); // Run right over the section table, it should be exactly the size to hold this data
@@ -2023,11 +1966,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
         Keywait(L"Section Headers table passed.\r\n");
 #endif
 
-        UINTN Total_image_size = (UINTN)PEHeader.OptionalHeader.SizeOfImage;
         UINTN Header_size = (UINTN)PEHeader.OptionalHeader.SizeOfHeaders;
 
 #ifdef PE_LOADER_DEBUG_ENABLED
-        Print(L"Total image size: %llu Bytes\r\nHeaders total size: %llu Bytes\r\n", Total_image_size, Header_size);
+        Print(L"Total image size: %llu Bytes\r\nHeaders total size: %llu Bytes\r\n", (UINT64)PEHeader.OptionalHeader.SizeOfImage, Header_size);
 #endif
         // NOTE: This implies the max file size for a PE executable is 4GB (SizeOfImage is a UINT32).
         // In any event, this has to be loaded from FAT32. You can't have a file larger than 4GB (32-bit max) on FAT32 anyways.
@@ -2054,7 +1996,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 
         GoTimeStatus = BS->AllocatePages(AllocateAnyPages, EfiLoaderData, pages, &AllocatedMemory);
 //        GoTimeStatus = BS->AllocatePages(AllocateAddress, EfiLoaderData, pages, &AllocatedMemory);
-//        AllocatedMemory = 0xFFFFFFFF;
+//        AllocatedMemory = 0xFFFFFFFF; // This appears to be what AllocateAnyPages does.
 //        GoTimeStatus = BS->AllocatePages(AllocateMaxAddress, EfiLoaderData, pages, &AllocatedMemory);
         if(EFI_ERROR(GoTimeStatus))
         {
@@ -2080,7 +2022,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
           // UEFI OS loaders that are provided by operating system vendors.
 
+  #ifdef MEMORY_CHECK_INFO
           Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+  #endif
+
           // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
           // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
 
@@ -2090,12 +2035,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
           {
             // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
             Print(L"System was reset. No issues.\r\n");
+  #endif
           }
           else // Not our remains, proceed with discovery of viable memory address
           {
 
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
+  #endif
 
             // Free the pages (well, return them to the system as they were...)
             GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
@@ -2162,7 +2111,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
               if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
               {
                 // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
                 Print(L"System appears to have been reset. No issues.\r\n");
+  #endif
+
                 break;
               }
               else
@@ -2231,7 +2183,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   #endif
 
   #ifndef BY_PAGE_SEARCH_DISABLED
+    #ifdef MEMORY_CHECK_INFO
               Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+    #endif
 
     #ifdef MEMORY_DEBUG_ENABLED
               Keywait(L"About to search page by page\r\n");
@@ -2282,7 +2236,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
                 if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 2))
                 {
                   // Do nothing, we're fine
+    #ifdef MEMORY_CHECK_INFO
                   Print(L"System might have been reset. Hopefully no issues.\r\n");
+    #endif
+
                   break;
                 }
                 else
@@ -2342,8 +2299,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
             } // End "big guns"
 
             // Got a good address!
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Found!\r\n");
-
+  #endif
           } // End discovery of viable memory address (else)
           // Can move on now
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
@@ -2661,7 +2619,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     //  64-Bit ELF Loader
     //----------------------------------------------------------------------------------------------------------------------------------
 
-    //Slightly less terrible way of doing this; just a placeholder.
+    // Slightly less terrible way of doing this; just a placeholder.
     GoTimeStatus = KernelFile->SetPosition(KernelFile, 0);
     if(EFI_ERROR(GoTimeStatus))
     {
@@ -2685,7 +2643,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 
     if(compare(&ELF64header.e_ident[EI_MAG0], ELFMAG, SELFMAG)) // Check for \177ELF (hex: \xfELF)
     {
-      //ELF!
+      // ELF!
 
 #ifdef LOADER_DEBUG_ENABLED
       Keywait(L"ELF header passed.\r\n");
@@ -2785,8 +2743,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           // From UEFI Specification 2.7, Errata A (http://www.uefi.org/specifications):
           // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
           // UEFI OS loaders that are provided by operating system vendors.
-
+  #ifdef MEMORY_CHECK_INFO
           Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+  #endif
           // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
           // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
 /* ELF headers don't get copied
@@ -2796,13 +2755,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
           {
             // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
             Print(L"System was reset. No issues.\r\n");
+  #endif
           }
           else // Not our remains, proceed with discovery of viable memory address
           {
 */
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
-
+  #endif
             // Free the pages (well, return them to the system as they were...)
             GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
             if(EFI_ERROR(GoTimeStatus))
@@ -2866,7 +2828,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
               if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
               {
                 // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
                 Print(L"System appears to have been reset. No issues.\r\n");
+  #endif
+
                 break;
               }
               else
@@ -2931,7 +2896,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   #endif
 
   #ifndef BY_PAGE_SEARCH_DISABLED
+    #ifdef MEMORY_CHECK_INFO
               Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+    #endif
 
     #ifdef MEMORY_DEBUG_ENABLED
               Keywait(L"About to search page by page\r\n");
@@ -2979,7 +2946,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
                 if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, ELFMAG, SELFMAG))
                 {
                   // Do nothing, we're fine
+    #ifdef MEMORY_CHECK_INFO
                   Print(L"System might have been reset. Hopefully no issues.\r\n");
+    #endif
+
                   break;
                 }
                 else
@@ -3035,8 +3005,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
             } // End "big guns"
 
             // Got a good address!
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Found!\r\n");
-
+  #endif
 //          } // End discovery of viable memory address (else)
           // Can move on now
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
@@ -3190,7 +3161,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
         GoTimeStatus = KernelFile->SetPosition(KernelFile, sizeof(MACheader));
         if(EFI_ERROR(GoTimeStatus))
         {
-          Print(L"Error setting file position for mapping (ELF). 0x%llx\r\n", GoTimeStatus);
+          Print(L"Error setting file position for mapping (Mach64). 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
 */
@@ -3267,8 +3238,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           // From UEFI Specification 2.7, Errata A (http://www.uefi.org/specifications):
           // MemoryType values in the range 0x80000000..0xFFFFFFFF are reserved for use by
           // UEFI OS loaders that are provided by operating system vendors.
-
+  #ifdef MEMORY_CHECK_INFO
           Print(L"Non-zero memory location allocated. Verifying cause...\r\n");
+  #endif
           // Compare what's there with the kernel file's first bytes; the system might have been reset and the non-zero
           // memory is what remains of last time. This can be safely overwritten to avoid cluttering up system RAM.
 
@@ -3279,13 +3251,16 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
           if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
           {
             // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
             Print(L"System was reset. No issues.\r\n");
+  #endif
           }
           else // Not our remains, proceed with discovery of viable memory address
           {
 */
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Searching for actually free memory...\r\nPerhaps the firmware is buggy?\r\n");
-
+  #endif
             // Free the pages (well, return them to the system as they were...)
             GoTimeStatus = BS->FreePages(AllocatedMemory, pages);
             if(EFI_ERROR(GoTimeStatus))
@@ -3349,7 +3324,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
               if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
               {
                 // Do nothing, we're fine
+  #ifdef MEMORY_CHECK_INFO
                 Print(L"System appears to have been reset. No issues.\r\n");
+  #endif
+
                 break;
               }
               else
@@ -3414,7 +3392,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   #endif
 
   #ifndef BY_PAGE_SEARCH_DISABLED
+    #ifdef MEMORY_CHECK_INFO
               Print(L"Performing page-by-page search.\r\nThis might take a while...\r\n");
+    #endif
 
     #ifdef MEMORY_DEBUG_ENABLED
               Keywait(L"About to search page by page\r\n");
@@ -3462,7 +3442,10 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
                 if(compare((EFI_PHYSICAL_ADDRESS*)AllocatedMemory, &MemCheck, 4))
                 {
                   // Do nothing, we're fine
+    #ifdef MEMORY_CHECK_INFO
                   Print(L"System might have been reset. Hopefully no issues.\r\n");
+    #endif
+
                   break;
                 }
                 else
@@ -3518,8 +3501,9 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
             } // End "big guns"
 
             // Got a good address!
+  #ifdef MEMORY_CHECK_INFO
             Print(L"Found!\r\n");
-
+  #endif
 //          } // End discovery of viable memory address (else)
           // Can move on now
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
@@ -3611,7 +3595,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
         Keywait(L"\nLoad file sections into allocated pages passed.\r\n");
 #endif
 
-        //entrypointoffset should be a 64-bit relative mem address of the entry point of the kernel
+        // entrypointoffset should be a 64-bit relative mem address of the entry point of the kernel
         Header_memory = AllocatedMemory + entrypointoffset;
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
@@ -3643,7 +3627,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     }
   }
 
-#ifdef LOADER_DEBUG_ENABLED
+#ifdef FINAL_LOADER_DEBUG_ENABLED
   Print(L"Header_memory: 0x%llx\r\n", Header_memory);
   Print(L"Data at Header_memory (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(Header_memory + 8), *(EFI_PHYSICAL_ADDRESS*)Header_memory);
 
@@ -3671,6 +3655,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   // All EfiBootServicesData are freed by a call to ExitBootServices().
   // The only reason these were allocated in the first place was to stop this program from overwriting itself.
   // There should not be any memory leaks since AllocatePools were defined to be exactly the size they needed to be.
+  // These FreePools also error out.
 /*
   // Free previously allocated file-related (Kernel64) pools
   if(KernelFile)
@@ -3726,14 +3711,14 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     return GoTimeStatus;
   }
 
-#ifdef LOADER_DEBUG_ENABLED
+#ifdef FINAL_LOADER_DEBUG_ENABLED
   Print(L"Loader block allocated, size of structure: %llu\r\n", sizeof(LOADER_PARAMS));
   Keywait(L"About to get MemMap and exit boot services...\r\n");
 #endif
 
-//TODO: Figure this garbage out.
+  // Hm... This appears to also reset the video mode to mode 0...
   // Clear screen while we still have EFI services
-  // ST->ConOut->ClearScreen(ST->ConOut); // Hm... This appears to also reset the video mode to mode 0...
+  // ST->ConOut->ClearScreen(ST->ConOut);
   // Eh, this won't matter once debug statements are turned off, anyways, since the only time user input is required is before GOP SetMode
 
  //----------------------------------------------------------------------------------------------------------------------------------
@@ -3744,6 +3729,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
   UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
   UINT32 MemMapDescriptorVersion;
   EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
+
 /*
   // Simple version:
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
@@ -3756,8 +3742,8 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     }
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   GoTimeStatus = BS->ExitBootServices(ImageHandle, MemMapKey);
-
 */
+
 // Below is a better, more complex version
 
   // Get memory map and exit boot services
@@ -3867,7 +3853,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
 // Return 0 if desired section of memory is zeroed (for use in "if" statements)
 //
 
-UINT8 EFIAPI VerifyZeroMem(UINT64 NumBytes, UINT64 BaseAddr)
+UINT8 EFIAPI VerifyZeroMem(UINT64 NumBytes, UINT64 BaseAddr) // BaseAddr is a 64-bit unsigned int whose value is the memory address
 {
   for(UINT64 i = 0; i < NumBytes; i++)
   {
@@ -3902,13 +3888,14 @@ EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRE
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddress MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return 0;
+      return -1;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddress. 0x%llx\r\n", memmap_status);
+    return -1;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -3926,7 +3913,9 @@ EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRE
   if(Piece >= (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize))
   {
     // Return address -1, which will cause AllocatePages to fail
+#ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses...\r\n");
+#endif
     return -1;
   }
 
@@ -3964,13 +3953,14 @@ EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddressByPage MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return 0;
+      return -1;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddressByPage. 0x%llx\r\n", memmap_status);
+    return -1;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -4001,7 +3991,9 @@ EFI_PHYSICAL_ADDRESS EFIAPI ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL
   if(Piece >= (EFI_MEMORY_DESCRIPTOR*)((UINT8*)MemMap + MemMapSize))
   {
     // Return address -1, which will cause AllocatePages to fail
+#ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses by page...\r\n");
+#endif
     return -1;
   }
 
