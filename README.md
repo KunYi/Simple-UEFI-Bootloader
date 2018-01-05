@@ -23,6 +23,7 @@ Some features to look forward to:
 -Multi-GPU framebuffer support (typically only works with one monitor per GPU due to how most GPU firmwares are implemented)  
 -ACPI support  
 -The ability to get the full system memory map to do whatever you want with it  
+-Fits on a floppy diskette, and some systems can actually boot this from one  
   
 System Recommendations:  
 -x86-64 architecture (won't work with anything else)  
