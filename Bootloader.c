@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader
 //==================================================================================================================================
 //
-// Version 0.999
+// Version 1.0
 //
 // Author:
 //  KNNSpeed
@@ -14,12 +14,21 @@
 // It loads programs named "Kernel64" and passes the following structure to them:
 /*
   typedef struct {
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;
-    EFI_RUNTIME_SERVICES   *RTServices;
-    GPU_CONFIG             *GPU_Configs;
-    EFI_FILE_INFO          *FileMeta;
-    void                   *RSDP;
+    EFI_MEMORY_DESCRIPTOR  *Memory_Map;   // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    EFI_RUNTIME_SERVICES   *RTServices;   // UEFI Runtime Services
+    GPU_CONFIG             *GPU_Configs;  // Information about available graphics output devices; see below for details
+    EFI_FILE_INFO          *FileMeta;     // Kernel64 file metadata
+    void                   *RSDP;         // A pointer to the RSDP ACPI table
   } LOADER_PARAMS;
+*/
+//
+// GPU_CONFIG is a custom structure that is defined as follows:
+//
+/*
+  typedef struct {
+    EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE  *GPUArray;             // An array of EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE structs defining each available framebuffer
+    UINT64                              NumberOfFrameBuffers; // The number of structs in the array (== the number of available framebuffers)
+  } GPU_CONFIG;
 */
 //
 // This bootloader is primarily intended to enable programs to run "bare-metal," i.e. without an operating system, on x86-64 machines.
@@ -47,12 +56,12 @@
 // Useful Debugging Code
 //==================================================================================================================================
 //
-// Uncomment these for useful debugging prints and convenient key-awaiting pauses.
+// Enable useful debugging prints and convenient key-awaiting pauses
 //
 //NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
 // left to right while the byte order is reversed (right to left)!!
 //
-//TODO: Debug binary has this uncommented, release has it commented
+// Debug binary has this uncommented, release has it commented
 //#define ENABLE_DEBUG // Master debug enable switch
 
 #ifdef ENABLE_DEBUG
@@ -131,7 +140,20 @@ EFI_STATUS EFIAPI efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable
     return Status;
   }
 
-  Print(L"%02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n\n", Now.Month, Now.Day, Now.Year, Now.Hour, Now.Minute, Now.Second, Now.Nanosecond); // GNU-EFI apparently has a print function for time... Oh well.
+  Print(L"%02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Now.Month, Now.Day, Now.Year, Now.Hour, Now.Minute, Now.Second, Now.Nanosecond); // GNU-EFI apparently has a print function for time... Oh well.
+#ifdef MAIN_DEBUG_ENABLED
+  #ifdef MEMORY_DEBUG_ENABLED // Very slow memory debug version
+    Print(L"Simple UEFI Bootloader - V1.0 DEBUG (Memory)\r\n\n");
+  #else // Standard debug version
+    Print(L"Simple UEFI Bootloader - V1.0 DEBUG\r\n\n");
+  #endif
+#else
+  #ifdef FINAL_LOADER_DEBUG_ENABLED // Lite debug version
+    Print(L"Simple UEFI Bootloader - V1.0 DEBUG (Lite)\r\n\n");
+  #else // Release version
+    Print(L"Simple UEFI Bootloader - V1.0\r\n\n");
+  #endif
+#endif
   Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\nHeaderSize: %u Bytes\r\nCRC32: 0x%08x\r\nReserved: 0x%x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
   Print(L"Firmware Vendor: %s\r\nFirmware Revision: 0x%08x\r\n\n", ST->FirmwareVendor, ST->FirmwareRevision);
   Print(L"Configuration Table Info\r\n");
@@ -2628,7 +2650,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
     }
 
     Elf64_Ehdr ELF64header;
-    UINTN size = sizeof(ELF64header); // This works because it's not a pointer
+    size = sizeof(ELF64header); // This works because it's not a pointer
 
     GoTimeStatus = KernelFile->Read(KernelFile, &size, &ELF64header);
     if(EFI_ERROR(GoTimeStatus))
@@ -2661,7 +2683,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
         {
           GoTimeStatus = EFI_INVALID_PARAMETER;
           Print(L"Not a position-independent, executable ELF64 application...\r\n");
-          Print(L"e_type: 0x%hx\r\n", ELF64header.e_type); // If it's 3, we're good and won't see this. Hopefully the image was compiled with -fpic and linked with -shared and -Bsymbolic
+          Print(L"e_type: 0x%hx\r\n", ELF64header.e_type); // If it's 3, we're good and won't see this. Hopefully the image was compiled with -fpie and linked with -static-pie
           return GoTimeStatus;
         }
 
@@ -3077,8 +3099,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
         Keywait(L"\nLoad file sections into allocated pages passed.\r\n");
 #endif
 
-        // Link kernel with -Wl,-Bsymbolic and there's no need for relocations beyond the base-relative ones just done. YUS!
-        // Also, using -shared for linking and -fpic for compiling makes position independent code.
+        // Link kernel with -static-pie and there's no need for relocations beyond the base-relative ones just done. YUS!
 
         // e_entry should be a 64-bit relative memory address, and gives the kernel's entry point
         Header_memory = AllocatedMemory + ELF64header.e_entry;
@@ -3114,7 +3135,7 @@ EFI_STATUS EFIAPI GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RS
       }
 
       struct mach_header_64 MACheader;
-      UINTN size = sizeof(MACheader); // This works because it's not a pointer
+      size = sizeof(MACheader); // This works because it's not a pointer
 
       GoTimeStatus = KernelFile->Read(KernelFile, &size, &MACheader);
       if(EFI_ERROR(GoTimeStatus))
