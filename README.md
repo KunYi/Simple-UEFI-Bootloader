@@ -1,12 +1,14 @@
 # Simple-UEFI-Bootloader
 A UEFI bootloader for bare-metal x86-64 applications.  
   
+**Version 1.0**  - V1.1 incoming (1/7/2018) - it will include a small, cross-platform, and portable build system that uses GCC 7.1.0/Binutils 2.29.1 or later. V1.1 will also be properly licensed -- I just need to figure out which one is the most appropriate.
+  
 It's like a much simpler version of GRUB, mainly meant for writing your own operating system-less 64-bit programs. Supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;) 
-
-**V1.0 Released!**  
-
+  
 A simple bare-metal kernel using this bootloader will be uploaded here:  
 https://github.com/KNNSpeed/Simple-Kernel/
+  
+Please post any bugs, feature requests, etc. in "Issues."  
   
 **Features:**
 - UEFI 2.x support  
