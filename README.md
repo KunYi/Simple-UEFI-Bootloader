@@ -1,7 +1,7 @@
 # Simple-UEFI-Bootloader
 A UEFI bootloader for bare-metal x86-64 applications.  
   
-**Version 1.0**  - *V1.1 incoming (1/7/2018) - it will include a small, cross-platform, and portable build system that uses GCC 7.1.0/Binutils 2.29.1 or later. V1.1 will also be properly licensed -- I just need to figure out which one is the most appropriate.*
+**Version 1.1**
   
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, mainly meant for writing your own operating system-less 64-bit programs or full operating systems. Supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;) 
   
@@ -30,5 +30,3 @@ The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx 
   
 **How to Build from Source:**  
 A full description of how to actually compile, etc. will be posted here once it's written up. I will also be including a full, multi-platform portable build system I designed that makes compiling as simple as typing ".\Compile" in the command line and uses GCC/binutils, MinGW-w64, etc.
-  
-Additionally, there are some parts of GNU-EFI that needed to be updated and augmented, so that will be included out of necessity.
