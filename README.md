@@ -52,9 +52,11 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 ***Mac:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like ~/BareMetalx64
 
-2. Install MacPorts: https://www.macports.org/
+2. Install the latest MacPorts: https://www.macports.org/
 
 3. In Terminal, get the MinGW-w64 package via "sudo port install mingw-w64" ("sudo port install x86_64-w64-mingw32-gcc" might also work)
+
+    NOTE: Make sure that MacPorts downloads a version using the correct GCC and Binutils! You may need to run "sudo port selfupdate" if you aren't freshly installing MacPorts before running the above install command.
 
 4. Once MinGW-w64 is installed, open Terminal in the "Simple-UEFI-Bootloader" folder and run "./Compile-Mac.sh"
 
