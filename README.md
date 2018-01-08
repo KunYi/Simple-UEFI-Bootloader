@@ -102,4 +102,12 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
     *That's it! It should compile and a binary called "BOOTX64.EFI" will be output into the "Backend" folder.*
 
-    For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html 
+    For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
+  
+**Change Log:**
+
+V1.2 - Resolved a major issue that prevented larger SYSV ABI kernels (ELF) from running. (1/8/2018)
+
+V1.1 - Code organization and build system uploaded. Also fixed bugs. (1/7/2018)
+
+V1.0 - Initial release. Fully featured for PE32+ images. (1/5/2018)
