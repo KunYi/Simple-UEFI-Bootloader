@@ -1,0 +1,1 @@
+Directories containing GCC, MinGW-w64, and GNU binutils go in this "Backend" folder for Windows and Linux. This folder is also where the output binaries (named BOOTX64.EFI) will be when the project is successfully compiled.
