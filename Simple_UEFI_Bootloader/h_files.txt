@@ -1,0 +1,4 @@
+gnu-efi-3.0.6/inc
+gnu-efi-3.0.6/inc/x86_64
+gnu-efi-3.0.6/inc/protocol
+gnu-efi-3.0.6/lib
