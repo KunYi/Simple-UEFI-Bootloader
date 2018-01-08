@@ -72,7 +72,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     
     2c. Now set the terminal to the Simple-UEFI-Bootloader folder and run Compile.sh, which should work and output BOOTX64.EFI in the Backend folder. That's it!
 
-3. Looks like we need to build GCC & Binutils. Navigate to the "Backend" folder in terminal, and "git clone git://gcc.gnu.org/git/gcc.git" there. This will download a copy of GCC 8.0.0, which is what I have been using (need this version for the Simple-Kernel). If that git link ever changes, you'll need to find wherever the official GCC git repository ran off to.
+3. Looks like we need to build GCC & Binutils. Navigate to the "Backend" folder in terminal and do "git clone git://gcc.gnu.org/git/gcc.git" there. This will download a copy of GCC 8.0.0, which is what I have been using (need this version for the Simple-Kernel). If that git link ever changes, you'll need to find wherever the official GCC git repository ran off to.
 
 4. Once GCC has been cloned, in the cloned folder do "./configure -v --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --prefix=gcc-8 --enable-checking=release --enable-languages=c --disable-multilib"
 
