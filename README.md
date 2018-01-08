@@ -29,11 +29,13 @@ Please post any bugs, feature requests, etc. in "Issues."
 The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set!
   
 **License and Crediting:**  
+  
 Please see the LICENSE file for information on the licenses covering the code created for and used in this project. The file also contains important information on how to credit this project when using parts of it in other projects.  
   
 I tried to keep licensing for original code reasonable, concise, and permissive, and all I'm really asking for is appropriate citation (see the "Custom Attribution License" section of the file). Even if the only section you looked at was the Custom Attribution License section, that would be great (it's pretty short!). Thanks!  
   
 **How to Build from Source:**  
+  
 Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.
 
 ***Windows:***  
