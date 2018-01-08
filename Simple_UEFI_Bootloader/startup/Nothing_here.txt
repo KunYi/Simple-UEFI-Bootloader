@@ -1,0 +1,1 @@
+This folder is here to maintain consistency with the build scripts. It is not used in this project.
