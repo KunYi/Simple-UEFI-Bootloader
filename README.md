@@ -94,7 +94,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
 11. Finally, do "make install" to install the package into binutils-binaries. Congrats, you just built some of the biggest Linux sources ever.
 
-12. Open Compile.sh in an editor of your choice (nano, gedit, vim, etc.) and set the GCC_FOLDER_NAME variable at the top (e.g. gcc-8 without any slashes). Do the same thing for the BINUTILS_FOLDER_NAME, except use the binutils-binaries/x86_64-pc-linux-gnu folder.
+12. Open Compile.sh in an editor of your choice (nano, gedit, vim, etc.) and set the GCC_FOLDER_NAME variable at the top (e.g. gcc-8 without any slashes). Do the same thing for the BINUTILS_FOLDER_NAME, except use the binutils-binaries folder.
 
 13. At long last, you should be able to run "./Compile.sh" from within the "Simple-UEFI-Bootloader" folder.
 
