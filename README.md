@@ -12,7 +12,7 @@ Please post any bugs, feature requests, etc. in "Issues."
   
 **Features:**
 - UEFI 2.x support  
-- Loads kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (see my Simple-Kernel repository for proper compilation options)
+- Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (see my Simple-Kernel repository for proper compilation options)
 - Reset protection for kernel file loading (if the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location)
 - Multi-GPU framebuffer support (typically only works with one monitor per GPU due to how most GPU firmwares are implemented)  
 - ACPI support  
@@ -106,8 +106,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
   
 **Change Log:**
 
-V1.2 - Resolved a major issue that prevented larger SYSV ABI kernels (ELF) from running. (1/8/2018)
+V1.2 (1/8/2018) - Resolved a major issue that prevented larger SYSV ABI kernels (ELF, Mach-O) from running. As far as I can tell everything works properly and completely now.
 
-V1.1 - Code organization and build system uploaded. Also fixed bugs. (1/7/2018)
+V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 
-V1.0 - Initial release. Fully featured for PE32+ images. (1/5/2018)
+V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
