@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 1.1
+// Version 1.2
 //
 // Author:
 //  KNNSpeed
@@ -195,7 +195,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     return GoTimeStatus;
   }
 */
-
   GoTimeStatus = KernelFile->Read(KernelFile, &size, &DOSheader);
   if(EFI_ERROR(GoTimeStatus))
   {
@@ -206,6 +205,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #ifdef LOADER_DEBUG_ENABLED
   Keywait(L"DOS Header read from file.\r\n");
 #endif
+
+  // For the entry point jump, we need to know if the file uses ms_abi (is a PE image) or sysv_abi (*NIX image) calling convention
+  UINT8 KernelisPE = 0;
 
   // Check header
   if(DOSheader.e_magic == IMAGE_DOS_SIGNATURE) // MZ
@@ -281,6 +283,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           Print(L"Subsystem: %hu\r\n", PEHeader.OptionalHeader.Subsystem); // If it's 3, it was compiled as a Windows CUI (command line) program, and instead needs to be linked with the above GCC flag.
           return GoTimeStatus;
         }
+
+        // It's a PE image
+        KernelisPE = 1;
 
 #ifdef LOADER_DEBUG_ENABLED
         Keywait(L"UEFI PE32+ header passed.\r\n");
@@ -1995,6 +2000,15 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   Print(L"Header_memory: 0x%llx\r\n", Header_memory);
   Print(L"Data at Header_memory (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(Header_memory + 8), *(EFI_PHYSICAL_ADDRESS*)Header_memory);
 
+  if(KernelisPE)
+  {
+    Print(L"Kernel uses MS ABI\r\n");
+  }
+  else
+  {
+    Print(L"Kernel uses SYSV ABI\r\n");
+  }
+
   Keywait(L"\0");
 
   // Integrity check
@@ -2202,9 +2216,18 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   Loader_block->RSDP = RSDPTable;
 
   // Jump to entry point, and WE ARE LIVE!!
-  typedef void (EFIAPI *EntryPointFunction)(LOADER_PARAMS * LP); // Placeholder names for jump
-  EntryPointFunction EntryPointPlaceholder = (EntryPointFunction)(Header_memory);
-  EntryPointPlaceholder(Loader_block);
+  if(KernelisPE)
+  {
+    typedef void (__attribute__((ms_abi)) *EntryPointFunction)(LOADER_PARAMS * LP); // Placeholder names for jump
+    EntryPointFunction EntryPointPlaceholder = (EntryPointFunction)(Header_memory);
+    EntryPointPlaceholder(Loader_block);
+  }
+  else
+  {
+    typedef void (__attribute__((sysv_abi)) *EntryPointFunction)(LOADER_PARAMS * LP); // Placeholder names for jump
+    EntryPointFunction EntryPointPlaceholder = (EntryPointFunction)(Header_memory);
+    EntryPointPlaceholder(Loader_block);
+  }
 
   // Should never get here
   return GoTimeStatus;
