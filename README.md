@@ -121,7 +121,7 @@ V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 
 **Acknowledgements:**
-- [Nigel Croxon](https://sourceforge.net/u/noxorc/profile/) for GNU-EFI 3.0.6
+- [Nigel Croxon](https://sourceforge.net/u/noxorc/profile/) for [GNU-EFI 3.0.6](https://sourceforge.net/projects/gnu-efi/)
 - [UEFI Forum](http://www.uefi.org/) for the [UEFI Specification Version 2.7 (Errata A)](http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_7_A%20Sept%206.pdf), as well as for [previous UEFI 2.x specifications](http://www.uefi.org/specifications)
 - [OSDev Wiki](http://wiki.osdev.org/Main_Page) for its wealth of available information
 - [PhoenixWiki](http://wiki.phoenix.com/wiki/index.php/Category:UEFI) for very handy documentation on UEFI functions
