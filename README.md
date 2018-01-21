@@ -119,3 +119,12 @@ V1.2 (1/8/2018) - Resolved a major issue that prevented larger SYSV ABI kernels 
 V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 
 V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
+
+**Acknowledgements:**
+- Nigel Croxon (https://sourceforge.net/u/noxorc/profile/) for GNU-EFI
+- UEFI Forum (http://www.uefi.org/) for the UEFI specifications
+- OSDev Wiki (http://wiki.osdev.org/Main_Page) for its wealth of available information
+- GCC (https://gcc.gnu.org/) for providing a fantastic and versatile compiler
+- MinGW-w64 (https://mingw-w64.org/doku.php) for porting GCC to Windows
+- Mojca Miklavec (https://github.com/mojca) for porting MinGW-w64 to MacPorts (https://github.com/macports/macports-ports/tree/master/cross/mingw-w64)
+- cyrozap (https://github.com/cyrozap) for noting ambiguity in licensing terms
