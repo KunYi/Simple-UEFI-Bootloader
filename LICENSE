@@ -30,16 +30,20 @@ license:
 Copyright (c) 2017-2018 KNNSpeed
 
 This software is provided free of charge in hopes that it may be useful, and it
-can be downloaded and used in whole or in part. However, by using this software
-you agree, implicitly, to the following terms:
+can be downloaded and used in whole or in part. However, by using, copying,
+modifying, and/or distributing this software you agree, implicitly, to the
+following terms:
 
-1) You will appropriately credit this project when and where code taken from it
-is used, even if what is used is just a small part of this codebase.
+1) You will appropriately credit this project when and where code directly
+derived from it is implemented, even if what is implemented is just a small part
+of this codebase.
 
-Below are examples of appropriate citations; pick your favorite (from these
-examples, the long form is recommended where possible to make finding the
-correct source code easier). Note that these are just examples: the important
-point is that the exact original source is identified and attributed.
+Below are examples of appropriate citations; pick your favorite, put it
+somewhere reasonable like in an acknowledgements or references section, as a
+comment in the code, at the bottom of a README or in a LICENSE file, etc., and
+change "[Date you got it]" to the date you acquired my code. Note that these are
+just examples: the important point is that the exact original source is
+identified and attributed.
 
 Short:
 // From V1.2 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
@@ -48,7 +52,7 @@ Medium:
 // From KNNSpeed's "Simple UEFI Bootloader," V1.2:
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
-Long:
+Long (Recommended):
 // From KNNSpeed's "Simple UEFI Bootloader":
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 // V1.2, [Date you got it]
@@ -66,8 +70,10 @@ THE SOFTWARE.
 
 Failure to honor this license will cause annoying little elves to appear at your
 doorstep, and they will pester you without rest until the terms are satisfied.
-...Not really; you are simply not permitted to use the software as long as you
-do not comply with the above terms.
+...Not really: for as long as you do not comply with this license, you are
+simply not permitted to do anything with the software. This includes even
+printing it out and brushing your cat's teeth with it... Unless, of course, you
+printed an appropriate citation along with it.
 
 //=============================================================================
 //  Apple Public Source License 2.0 (APSL 2.0)
