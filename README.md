@@ -121,10 +121,16 @@ V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 
 **Acknowledgements:**
-- Nigel Croxon (https://sourceforge.net/u/noxorc/profile/) for GNU-EFI
-- UEFI Forum (http://www.uefi.org/) for the UEFI specifications
+- Nigel Croxon (https://sourceforge.net/u/noxorc/profile/) for GNU-EFI 3.0.6
+- UEFI Forum (http://www.uefi.org/) for the UEFI Specification Version 2.7 (Errata A), as well as for previous UEFI 2.x specifications
 - OSDev Wiki (http://wiki.osdev.org/Main_Page) for its wealth of available information
-- GCC (https://gcc.gnu.org/) for providing a fantastic and versatile compiler
+- PhoenixWiki (http://wiki.phoenix.com/wiki/index.php/Category:UEFI) for very handy documentation on UEFI functions
+- Matthew Garrett (https://mjg59.dreamwidth.org/) for detailed information about UEFI firmware behavior (e.g. https://mjg59.dreamwidth.org/18773.html?thread=767573)
+- GCC (https://gcc.gnu.org/) for a fantastic and versatile compiler
 - MinGW-w64 (https://mingw-w64.org/doku.php) for porting GCC to Windows
 - Mojca Miklavec (https://github.com/mojca) for porting MinGW-w64 to MacPorts (https://github.com/macports/macports-ports/tree/master/cross/mingw-w64)
+- Matt Pietrek (https://msdn.microsoft.com/en-us/library/ms809762.aspx) for extensive documentation on the Windows PE file format
+- Tool Interface Standard (https://www.uclibc.org/docs/elf.pdf) for extensive documentation on ELF files
+- Apple Inc. (https://www.apple.com/) for documentation on Mach-O files (https://developer.apple.com/library/content/documentation/DeveloperTools/Conceptual/MachOTopics/0-Introduction/introduction.html)
+- Low Level Bits (https://lowlevelbits.org/) for further documentation on Mach-O files (https://lowlevelbits.org/parsing-mach-o-files/)
 - cyrozap (https://github.com/cyrozap) for noting ambiguity in licensing terms
