@@ -5,28 +5,32 @@ A UEFI bootloader for bare-metal x86-64 applications.
   
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, mainly meant for writing your own operating system-less 64-bit programs or full operating systems. Supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;) 
   
-See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."  
+***See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."***  
   
 A simple bare-metal kernel that uses this bootloader can be found here:  
 https://github.com/KNNSpeed/Simple-Kernel/
   
 **Features:**
 - UEFI 2.x support  
-- Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (see my Simple-Kernel repository for proper compilation options)
-- Reset protection for kernel file loading (if the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location)
-- Multi-GPU framebuffer support (typically only works with one monitor per GPU due to how most GPU firmwares are implemented)  
+- Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (1)  
+- Reset protection for kernel file loading (2)  
+- Multi-GPU framebuffer support (3)  
 - ACPI support  
 - The ability to get the full system memory map to do whatever you want with it  
 - Fits on a floppy diskette, and some systems can actually boot it from a floppy  
   
+  (1) See my Simple-Kernel repository for proper compilation options for each operating system.  
+  (2) If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.  
+  (3) This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.  
+  
 **System Requirements:**  
-- x86-64 architecture (won't work with anything else)  
+- x86-64 architecture  
 - Secure Boot must be disabled  
 - More than 4GB RAM (though it seems to work OK with less, e.g. Hyper-V with only 1GB)  
 - A graphics card (Intel, AMD, NVidia, etc.) **with UEFI GOP support**  
 - A keyboard  
 
-The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set!
+The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check if your graphics card(s) have UEFI GOP support by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set! *NOTE: You need to check each graphics card if there is a mix, as you will only be able to use the ones with UEFI GOP support. Per the system requirements above, you need at least one compliant device.*  
   
 **License and Crediting:**  
   
@@ -36,7 +40,7 @@ I tried to keep licensing for original code reasonable, concise, and permissive,
 
 ***Easy, 20-Second Summary:***
 
-If you want to use, copy, modify, and/or distribute my source code, in other words the code in this repository not already covered under any license, simply copy & paste the below 3 lines somewhere reasonable like in an acknowledgements or references section, as a comment in the code, at the bottom of a README or in a LICENSE file, etc., change "[Date you got it]" to the date you acquired my code, and don't sue me if something goes wrong - especially since there's no warranty (and firmware vendors sometimes just don't follow the UEFI spec in unforeseen ways, but it would be great if you posted an issue so I could fix it!). Thanks!
+If you want to use, copy, modify, and/or distribute my source code, in other words the code in this repository not already covered under any license, simply copy & paste the below 3 lines somewhere reasonable like in an acknowledgements or references section, as a comment in the code, at the bottom of a README or in a LICENSE file, etc., change "[Date you got it]" to the date you acquired my code, and don't sue me if something goes wrong - especially since there's no warranty (and sometimes firmware vendors just don't follow the UEFI spec in unforeseen ways, but it would be great if you posted an issue so I could fix it!). Thanks!
   
 From KNNSpeed's "Simple UEFI Bootloader":  
 https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
