@@ -11,17 +11,17 @@ A simple bare-metal kernel that uses this bootloader can be found here:
 https://github.com/KNNSpeed/Simple-Kernel/
   
 **Features:**
-- UEFI 2.x support  
-- Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (1)  
-- Reset protection for kernel file loading (2)  
-- Multi-GPU framebuffer support (3)  
-- ACPI support  
-- The ability to get the full system memory map to do whatever you want with it  
-- Fits on a floppy diskette, and some systems can actually boot it from a floppy  
+- UEFI 2.x support
+- Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files (1)
+- Reset protection for kernel file loading (2)
+- Multi-GPU framebuffer support (3)
+- ACPI support
+- The ability to get the full system memory map to do whatever you want with it
+- Fits on a floppy diskette, and some systems can actually boot it from a floppy
   
-  (1) See my Simple-Kernel repository for proper compilation options for each operating system.  
-  (2) If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.  
-  (3) This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.  
+(1) See my Simple-Kernel repository for proper compilation options for each operating system.  
+(2) If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.  
+(3) This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.  
   
 **System Requirements:**  
 - x86-64 architecture  
