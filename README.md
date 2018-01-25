@@ -5,7 +5,7 @@ A UEFI bootloader for bare-metal x86-64 applications.
   
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, mainly meant for writing your own operating system-less 64-bit programs or full operating systems. Supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;) 
   
-***See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."***  
+**See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."**  
   
 A simple bare-metal kernel that uses this bootloader can be found here:  
 https://github.com/KNNSpeed/Simple-Kernel/
