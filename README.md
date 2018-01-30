@@ -18,10 +18,12 @@ https://github.com/KNNSpeed/Simple-Kernel/
 - ACPI support
 - The ability to get the full system memory map to do whatever you want with it
 - Fits on a floppy diskette, and some systems can actually boot it from a floppy
+- Minimalistic UEFI development environment tuned for Windows, Mac, and Linux included in repository (4)
   
 (1) See my Simple-Kernel repository for proper compilation options for each operating system.  
 (2) If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.  
 (3) This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.  
+(4) See the below "How to Build from Source" section for complete compilation instructions for each platform, and then all you need to do is put your code in "src" and "inc" in place of mine. Your program can then be run the same way as described in "Releases" using a UEFI-supporting VM like Hyper-V or on actual hardware.  
   
 **System Requirements:**  
 - x86-64 architecture  
