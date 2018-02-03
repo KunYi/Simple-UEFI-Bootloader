@@ -7,10 +7,11 @@ This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manage
   
 **See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."**  
   
-A simple bare-metal kernel that uses this bootloader can be found here:  
+A minimal development environment for making your own programs/kernels that use this bootloader can be found here (it also includes a sample kernel):  
 https://github.com/KNNSpeed/Simple-Kernel/
   
-**Features:**
+**Bootloader Features**  
+  
 - UEFI 2.x support
 - Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files ***(1)***
 - Reset protection for kernel file loading ***(2)***
@@ -18,14 +19,15 @@ https://github.com/KNNSpeed/Simple-Kernel/
 - ACPI support
 - The ability to get the full system memory map to do whatever you want with it
 - Fits on a floppy diskette, and some systems can actually boot it from a floppy
-- Minimalistic UEFI development environment tuned for Windows, Mac, and Linux included in repository ***(4)***
+- Minimal UEFI development environment tuned for Windows, Mac, and Linux included in repository ***(4)***
   
-***(1)*** *See my Simple-Kernel repository for proper compilation options for each operating system.*  
+***(1)*** *See the Simple-Kernel repository for proper compilation options for each operating system.*  
 ***(2)*** *If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.*  
 ***(3)*** *This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.*  
 ***(4)*** *See the below "How to Build from Source" section for complete compilation instructions for each platform, and then all you need to do is put your code in "src" and "inc" in place of mine. Once compiled, your program can be run in the same way as described in "Releases" using a UEFI-supporting VM like Hyper-V or on actual hardware.*  
   
-**System Requirements:**  
+**Target System Requirements**  
+  
 - x86-64 architecture  
 - Secure Boot must be disabled  
 - More than 4GB RAM (though it seems to work OK with less, e.g. Hyper-V with only 1GB)  
@@ -36,7 +38,7 @@ The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx 
   
 *NOTE: You need to check each graphics card if there is a mix, as you will only be able to use the ones with UEFI GOP support. Per the system requirements above, you need at least one compliant device.*  
   
-**License and Crediting:**  
+**License and Crediting**  
   
 Please see the LICENSE file for information on the licenses covering the code created for and used in this project. The file also contains important information on how to credit this project when using parts of it in other projects.  
   
@@ -50,7 +52,7 @@ From KNNSpeed's "Simple UEFI Bootloader":
 https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
 V1.2, [Date you got it]  
   
-**How to Build from Source:**  
+**How to Build from Source**  
   
 Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.
 
@@ -120,7 +122,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
   
-**Change Log:**
+**Change Log**
 
 V1.2 (1/8/2018) - Resolved a major issue that prevented larger SYSV ABI kernels (ELF, Mach-O) from running. As far as I can tell everything works properly and completely now.
 
@@ -128,7 +130,8 @@ V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 
 V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 
-**Acknowledgements:**
+**Acknowledgements**  
+  
 - [Nigel Croxon](https://sourceforge.net/u/noxorc/profile/) for [GNU-EFI 3.0.6](https://sourceforge.net/projects/gnu-efi/)
 - [UEFI Forum](http://www.uefi.org/) for the [UEFI Specification Version 2.7 (Errata A)](http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_7_A%20Sept%206.pdf), as well as for [previous UEFI 2.x specifications](http://www.uefi.org/specifications)
 - [OSDev Wiki](http://wiki.osdev.org/Main_Page) for its wealth of available information
