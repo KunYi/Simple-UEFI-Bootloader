@@ -7,8 +7,7 @@ This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manage
   
 ***See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."***  
   
-A minimal, cross-platform development environment for making your own programs and kernels that use this bootloader can be found here (a sample kernel is also included):  
-https://github.com/KNNSpeed/Simple-Kernel/
+A minimal, cross-platform development environment for making your own programs and kernels that use this bootloader can be found here (a sample kernel is also included): https://github.com/KNNSpeed/Simple-Kernel/
   
 **Bootloader Features**  
   
