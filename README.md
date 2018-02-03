@@ -136,8 +136,8 @@ V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 - [OSDev Wiki](http://wiki.osdev.org/Main_Page) for its wealth of available information
 - [PhoenixWiki](http://wiki.phoenix.com/wiki/index.php/Category:UEFI) for very handy documentation on UEFI functions
 - [Matthew Garrett](https://mjg59.dreamwidth.org/) for detailed information about UEFI firmware behavior (e.g. ["Getting started with UEFI development"](https://mjg59.dreamwidth.org/18773.html?thread=767573))
-- [GCC](https://gcc.gnu.org/) for a fantastic and versatile compiler
-- [MinGW-w64](https://mingw-w64.org/doku.php) for porting GCC to Windows
+- The [GNU project](https://www.gnu.org/home.en.html) for [GCC](https://gcc.gnu.org/), a fantastic and versatile compiler, and [Binutils](https://www.gnu.org/software/binutils/), equally fantastic binary utilities
+- [MinGW-w64](https://mingw-w64.org/doku.php) for porting GCC & Binutils to Windows
 - [Mojca Miklavec](https://github.com/mojca) for [porting MinGW-w64 to MacPorts](https://github.com/macports/macports-ports/tree/master/cross/mingw-w64)
 - [Matt Pietrek](https://blogs.msdn.microsoft.com/matt_pietrek/) for [extensive documentation on the Windows PE file format](https://msdn.microsoft.com/en-us/library/ms809762.aspx)
 - Tool Interface Standard for [extensive documentation on ELF files](https://www.uclibc.org/docs/elf.pdf)
