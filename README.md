@@ -103,7 +103,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
 7. Next, grab binutils 2.29.1 or later from https://ftp.gnu.org/gnu/binutils/ and extract the archive to Backend.
 
-8. In the extracted Binutils folder, do "mkdir build" and "cd build" before configuring with "../configure --prefix=binutils-binaries --enable-gold --enable-ld=default --enable-plugins --enable-shared --disable-werror"
+8. In the extracted Binutils folder, do "mkdir build" and "cd build" before configuring with "../configure --prefix=$PWD/../binutils-binaries --enable-gold --enable-ld=default --enable-plugins --enable-shared --disable-werror"
 
     NOTE: The "prefix" flag means the same thing as GCC's.
 
@@ -111,7 +111,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
 10. Once make is done making, do "make -k check" and do a crossword or something. There should be a very small number of errors, if any.
 
-11. Finally, do "make install" to install the package into binutils-binaries. Congrats, you just built some of the biggest Linux sources ever.
+11. Finally, do "make install" to install the package into binutils-binaries. Congratulations, you've just built some of the biggest Linux sources ever!
 
 12. Open Compile.sh in an editor of your choice (nano, gedit, vim, etc.) and set the GCC_FOLDER_NAME variable at the top (e.g. gcc-8 without any slashes). Do the same thing for the BINUTILS_FOLDER_NAME, except use the binutils-binaries folder.
 
