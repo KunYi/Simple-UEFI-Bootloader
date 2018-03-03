@@ -62,7 +62,7 @@ V1.2, [Date you got it]
   
 **How to Build from Source**  
   
-Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.
+Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.  
 
 ***Windows:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like C:\BareMetalx64
