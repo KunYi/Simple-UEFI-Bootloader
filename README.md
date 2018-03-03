@@ -40,25 +40,26 @@ The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx 
 **License and Crediting**  
   
 ***TL;DR:***  
-Effectively PD (Public Domain) for all code in this repository not already covered by a license (i.e. my original source code), **as long as you give proper credit to this project.** See below for an example of what that might look like--more examples are included in the LICENSE file. If you don't give credit to this project, per the license you aren't allowed to use it. That's pretty much it (and why it's "effectively" or "almost" PD, or "PD with credit" if I have to give it a nickname).  
   
-Please see the LICENSE file for further information on all licenses covering the code created for and used in this project.  
+Effectively PD (Public Domain) for all code in this repository not already covered by a license (i.e. my original source code), **as long as you give proper credit to this project.** See below for an example of what that might look like--more examples are included in the LICENSE file. If you don't give credit to this project, per the license you aren't allowed to use it. That's pretty much it (and why it's "effectively" or "almost" PD, or "PD with Credit" if I have to give it a nickname).  
+  
+Please see the LICENSE file for further information on all licenses covering code created for and used in this project.  
   
 *Example Citation:*  
   
 From KNNSpeed's "Simple UEFI Bootloader":  
 https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
-V1.2, [Date you got it]
+V1.2, [Date you got it]  
   
 ***Slightly More Detailed License Summary:***
   
-If you want to use, copy, modify, and/or distribute my source code, in other words the code in this repository not already covered under any license, simply copy & paste the below 3 lines somewhere reasonable like in an acknowledgements or references section, as a comment in the code, at the bottom of a README or in a LICENSE file, etc., change "[Date you got it]" to the date you acquired my code, and don't sue me if something goes wrong - especially since there's no warranty (and sometimes firmware vendors just don't follow the UEFI spec in unforeseen ways, but it would be great if you posted an issue so I could fix it!). Thanks!
+If you want to use, copy, modify, and/or distribute this project's original source code, in other words the code in this repository not already covered under any license, simply copy & paste the below 3 lines somewhere reasonable like in an acknowledgements or references section, as a comment in the code, at the bottom of a README or in a LICENSE file, etc. Then, change "[Date you got it]" to the date you acquired the code, and don't sue me if something goes wrong - especially since there's no warranty (and sometimes firmware vendors just don't follow the UEFI spec in unforeseen ways, but it would be great if you posted an issue so I could fix it!). Thanks!
   
 From KNNSpeed's "Simple UEFI Bootloader":  
 https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
 V1.2, [Date you got it]  
   
-(As mentioned in the TL;DR, please see the LICENSE file for further information on all licenses covering the code created for and used in this project.)  
+(As mentioned in the TL;DR, please see the LICENSE file for further information on all licenses covering code created for and used in this project.)  
   
 **How to Build from Source**  
   
