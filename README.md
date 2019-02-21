@@ -1,16 +1,16 @@
-## Simple-UEFI-Bootloader
+# Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications.  
-  
-**Version 1.2**
-  
-This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;) 
-  
+
+**Version 1.3**
+
+This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
+
 ***See the "Releases" tab for usage information and downloads, and please post any bugs, feature requests, etc. in "Issues."***  
-  
-A minimal, cross-platform development environment for making your own programs and kernels that use this bootloader can be found here (a sample kernel is also included): https://github.com/KNNSpeed/Simple-Kernel/
-  
-**Bootloader Features**  
-  
+
+A minimal, cross-platform development environment for making your own programs, kernels, and/or operating systems that use this bootloader can be found here (demo binary programs are also there; note that they do require AVX support): https://github.com/KNNSpeed/Simple-Kernel/
+
+## Bootloader Features  
+
 - UEFI 2.x support
 - Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files ***(1)***
 - Reset protection for kernel file loading ***(2)***
@@ -19,14 +19,14 @@ A minimal, cross-platform development environment for making your own programs a
 - The ability to get the full system memory map to do whatever you want with it
 - Fits on a floppy diskette, and some systems can actually boot it from a floppy
 - Minimal UEFI development environment tuned for Windows, Mac, and Linux included in repository ***(4)***
-  
+
 ***(1)*** *See the Simple-Kernel repository for proper compilation options for each operating system.*  
 ***(2)*** *If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.*  
 ***(3)*** *This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.*  
 ***(4)*** *See the below "How to Build from Source" section for complete compilation instructions for each platform, and then all you need to do is put your code in "src" and "inc" in place of mine. Once compiled, your program can be run in the same way as described in "Releases" using a UEFI-supporting VM like Hyper-V or on actual hardware.*  
-  
-**Target System Requirements**  
-  
+
+## Target System Requirements  
+
 - x86-64 architecture  
 - Secure Boot must be disabled  
 - More than 4GB RAM (though it seems to work OK with less, e.g. Hyper-V with only 1GB)  
@@ -34,35 +34,21 @@ A minimal, cross-platform development environment for making your own programs a
 - A keyboard  
 
 The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check if your graphics card(s) have UEFI GOP support by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set!  
-  
+
 *NOTE: You need to check each graphics card if there is a mix, as you will only be able to use the ones with UEFI GOP support. Per the system requirements above, you need at least one compliant device.*  
-  
-**License and Crediting**  
-  
+
+## License and Crediting  
+
+Please see the LICENSE file for information on all licenses covering code created for and used in this project.  
+
 ***TL;DR:***  
-  
-Effectively PD (Public Domain) for all code in this repository not already covered by a license (i.e. my original source code), **as long as you give proper credit to this project.** See below for an example of what that might look like--more examples are included in the LICENSE file. If you don't give credit to this project, per the license you aren't allowed to use it. That's pretty much it (and why it's "effectively" or "almost" PD, or "PD with Credit" if I have to give it a nickname).  
-  
-Please see the LICENSE file for further information on all licenses covering code created for and used in this project.  
-  
-*Example Citation:*  
-  
-From KNNSpeed's "Simple UEFI Bootloader":  
-https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
-V1.2, [Date you got it]  
-  
-***Slightly More Detailed License Summary:***
-  
-If you want to use, copy, modify, and/or distribute this project's original source code, in other words the code in this repository not already covered under any license, simply copy & paste the below 3 lines somewhere reasonable like in an acknowledgements or references section, as a comment in the code, at the bottom of a README or in a LICENSE file, etc. Then, change "[Date you got it]" to the date you acquired the code, and don't sue me if something goes wrong - especially since there's no warranty (and sometimes firmware vendors just don't follow the UEFI spec in unforeseen ways, but it would be great if you posted an issue so I could fix it!). Thanks!
-  
-From KNNSpeed's "Simple UEFI Bootloader":  
-https://github.com/KNNSpeed/Simple-UEFI-Bootloader  
-V1.2, [Date you got it]  
-  
-(As mentioned in the TL;DR, please see the LICENSE file for further information on all licenses covering code created for and used in this project.)  
-  
-**How to Build from Source**  
-  
+
+If you don't give credit to this project, per the license you aren't allowed to do anything with any of its source code that isn't already covered by an existing license (in other words, my license covers most of the code I wrote). That's pretty much it, and why it's "almost" PD, or "PD with Credit" if I have to give it a nickname, as there's no restriction on what it gets used for as long as the license is satisfied. If you have any issues, feature requests, etc. please post in "Issues" so it can be attended to/fixed.  
+
+Note that each of these files already has appropriate crediting at the top, so you could just leave what's already there to satisfy the terms. You really should see the license file for complete information, though (it's short!!).  
+
+## How to Build from Source  
+
 Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.  
 
 ***Windows:***  
@@ -75,7 +61,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 4. Open Windows PowerShell or the Command Prompt in the "Simple-UEFI-Bootloader" folder and type ".\Compile.bat"
 
     *That's it! It should compile and a binary called "BOOTX64.EFI" will be output into the "Backend" folder.*
-  
+
 ***Mac:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like ~/BareMetalx64
 
@@ -88,17 +74,17 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 4. Once MinGW-w64 is installed, open Terminal in the "Simple-UEFI-Bootloader" folder and run "./Compile-Mac.sh"
 
     *That's it! It should compile and a binary called "BOOTX64.EFI" will be output into the "Backend" folder.*
-  
+
 ***Linux:***  
 
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like ~/BareMetalx64
 
 2. If, in the terminal, "gcc --version" reports GCC 7.1.0 or later and "ld --version" reports 2.29.1 or later, do steps 2a, 2b, and 2c. Otherwise go to step 3.
-    
+
     2a. Type "which gcc" in the terminal, and make a note of what it says (something like /usr/bin/gcc or /usr/local/bin/gcc)
-    
+
     2b. Open Compile.sh in an editor of your choice (nano, gedit, vim, etc.) and set the GCC_FOLDER_NAME variable at the top to be the part before "bin" (e.g. /usr or /usr/local, without the last slash). Do the same thing for BINUTILS_FOLDER_NAME, except use the output of "which ld" to get the directory path preceding "bin" instead.
-    
+
     2c. Now set the terminal to the Simple-UEFI-Bootloader folder and run "./Compile.sh", which should work and output BOOTX64.EFI in the Backend folder. *That's it!*
 
 3. Looks like we need to build GCC & Binutils. Navigate to the "Backend" folder in terminal and do "git clone git://gcc.gnu.org/git/gcc.git" there. This will download a copy of GCC 8.0.0, which is what I have been using (need this version for the Simple-Kernel). If that git link ever changes, you'll need to find wherever the official GCC git repository ran off to.
@@ -130,8 +116,10 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     *That's it! It should compile and a binary called "BOOTX64.EFI" will be output into the "Backend" folder.*
 
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
-  
-**Change Log**
+
+## Change Log
+
+V1.3 (2/21/2019) - Added Memory_Map_Size and Memory_Map_Descriptor_Size to loader parameters. This is to prevent having to rely on potentially inconsistent techniques (particularly in really unlucky corner cases) to get the memory map size in the kernel. Also updated GNU-EFI backend to 3.0.9, updated the README format to be easier to follow, updated the license TL;DR to be shorter and clearer (i.e. made it actually a TL;DR)--note that the license terms have not changed, only the wording in the TL;DR.
 
 V1.2 (1/8/2018) - Resolved a major issue that prevented larger SYSV ABI kernels (ELF, Mach-O) from running. As far as I can tell everything works properly and completely now.
 
@@ -139,9 +127,9 @@ V1.1 (1/7/2018) - Code organization and build system uploaded. Also fixed bugs.
 
 V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 
-**Acknowledgements**  
-  
-- [Nigel Croxon](https://sourceforge.net/u/noxorc/profile/) for [GNU-EFI 3.0.6](https://sourceforge.net/projects/gnu-efi/)
+## Acknowledgements  
+
+- [Nigel Croxon](https://sourceforge.net/u/noxorc/profile/) for [GNU-EFI](https://sourceforge.net/projects/gnu-efi/)
 - [UEFI Forum](http://www.uefi.org/) for the [UEFI Specification Version 2.7 (Errata A)](http://www.uefi.org/sites/default/files/resources/UEFI%20Spec%202_7_A%20Sept%206.pdf), as well as for [previous UEFI 2.x specifications](http://www.uefi.org/specifications)
 - [OSDev Wiki](http://wiki.osdev.org/Main_Page) for its wealth of available information
 - [PhoenixWiki](http://wiki.phoenix.com/wiki/index.php/Category:UEFI) for very handy documentation on UEFI functions
