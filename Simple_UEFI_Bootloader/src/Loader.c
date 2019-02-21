@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 1.2
+// Version 1.3
 //
 // Author:
 //  KNNSpeed
@@ -963,8 +963,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         return GoTimeStatus;
       }
 
-      // mov relocated e_sp to %rsp
-      // Normally, entry point is in e_ip...
 #ifdef DOS_LOADER_DEBUG_ENABLED
       Print(L"\r\nVerify:\r\nDOSMem: 0x%llx\r\nData there (first 16 bytes): 0x%016llx%016llx\r\n", DOSMem, *(EFI_PHYSICAL_ADDRESS*)(DOSMem + 8), *(EFI_PHYSICAL_ADDRESS*)DOSMem); // Print the first 128 bits of data at that address to compare
       Print(L"Last 16 bytes: 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(DOSMem + size - 8), *(EFI_PHYSICAL_ADDRESS*)(DOSMem + size - 16));
@@ -972,6 +970,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       Keywait(L"\0");
 #endif
 
+      // mov relocated e_sp to %rsp
+
+      // Normally, entry point is in e_ip...
       Header_memory = DOSMem + (UINT64)DOSheader.e_ip*16;
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
@@ -2112,7 +2113,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // Simple version:
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   // Will error intentionally
-  GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap);
+  GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
   if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", GoTimeStatus);
@@ -2128,7 +2129,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
   {
-    GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
+    GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
     if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", GoTimeStatus);
@@ -2149,7 +2150,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
     if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
     {
-      GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap);
+      GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
       if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
       {
         Print(L"MemMap AllocatePool error #2. 0x%llx\r\n", GoTimeStatus);
@@ -2200,6 +2201,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 /*
   // Loader block defined in header
   typedef struct {
+    UINTN                   Memory_Map_Size;
+    UINTN                   Memory_Map_Descriptor_Size;
     EFI_MEMORY_DESCRIPTOR  *Memory_Map;
     EFI_RUNTIME_SERVICES   *RTServices;
     GPU_CONFIG             *GPU_Configs;
@@ -2209,6 +2212,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 */
 
   // This shouldn't modify the memory map.
+  Loader_block->Memory_Map_Size = MemMapSize;
+  Loader_block->Memory_Map_Descriptor_Size = MemMapDescriptorSize;
   Loader_block->Memory_Map = MemMap;
   Loader_block->RTServices = RT;
   Loader_block->GPU_Configs = Graphics;

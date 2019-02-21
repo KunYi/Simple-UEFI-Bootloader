@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Bootloader Entrypoint
 //==================================================================================================================================
 //
-// Version 1.2
+// Version 1.3
 //
 // Author:
 //  KNNSpeed
@@ -10,15 +10,19 @@
 // Source Code:
 //  https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 //
+// About this program:
+//
 // This program is an x86-64 bootloader for UEFI-based systems. It's like GRUB, but simpler! (Though it won't boot Linux, Windows, etc.)
 // It loads programs named "Kernel64" and passes the following structure to them:
 /*
   typedef struct {
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;   // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
-    EFI_RUNTIME_SERVICES   *RTServices;   // UEFI Runtime Services
-    GPU_CONFIG             *GPU_Configs;  // Information about available graphics output devices; see below for details
-    EFI_FILE_INFO          *FileMeta;     // Kernel64 file metadata
-    void                   *RSDP;         // A pointer to the RSDP ACPI table
+    UINTN                   Memory_Map_Size;            // The total size of the system memory map
+    UINTN                   Memory_Map_Descriptor_Size; // The size of an individual memory descriptor
+    EFI_MEMORY_DESCRIPTOR  *Memory_Map;                 // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    EFI_RUNTIME_SERVICES   *RTServices;                 // UEFI Runtime Services
+    GPU_CONFIG             *GPU_Configs;                // Information about available graphics output devices; see below for details
+    EFI_FILE_INFO          *FileMeta;                   // Kernel64 file metadata
+    void                   *RSDP;                       // A pointer to the RSDP ACPI table
   } LOADER_PARAMS;
 */
 //
@@ -53,7 +57,7 @@
 #include "Bootloader.h"
 
 #define MAJOR_VER 1
-#define MINOR_VER 2
+#define MINOR_VER 3
 
 //==================================================================================================================================
 //  efi_main: Main Function
@@ -111,7 +115,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print(L"Simple UEFI Bootloader - V%d.%d\r\n", MAJOR_VER, MINOR_VER);
   #endif
 #endif
-  Print(L"Copyright (c) 2017-2018 KNNSpeed\r\n\n");
+  Print(L"Copyright (c) 2017-2019 KNNSpeed\r\n\n");
 
 #ifdef MAIN_DEBUG_ENABLED
   Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\nHeader Size: %u Bytes\r\nCRC32: 0x%08x\r\nReserved: 0x%x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
