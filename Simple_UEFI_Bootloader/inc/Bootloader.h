@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Main Header
 //==================================================================================================================================
 //
-// Version 1.2
+// Version 1.3
 //
 // Author:
 //  KNNSpeed
@@ -38,6 +38,9 @@
 //
 // Debug binary has this uncommented, release has it commented
 //#define ENABLE_DEBUG // Master debug enable switch
+
+// Debug Lite only has the below flag enabled (for main debug binary, leave this commented out and only use the above definition)
+//#define FINAL_LOADER_DEBUG_ENABLED
 
 #ifdef ENABLE_DEBUG
     #define SHOW_KERNEL_METADATA
@@ -93,16 +96,18 @@
 //
 
 typedef struct {
-  EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE  *GPUArray; // This array contains the EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE structures for each available framebuffer
+  EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE  *GPUArray;             // This array contains the EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE structures for each available framebuffer
   UINT64                              NumberOfFrameBuffers; // The number of pointers in the array (== the number of available framebuffers)
 } GPU_CONFIG;
 
 typedef struct {
-  EFI_MEMORY_DESCRIPTOR  *Memory_Map;
-  EFI_RUNTIME_SERVICES   *RTServices;
-  GPU_CONFIG             *GPU_Configs;
-  EFI_FILE_INFO          *FileMeta;
-  void                   *RSDP;
+  UINTN                   Memory_Map_Size;            // The total size of the system memory map
+  UINTN                   Memory_Map_Descriptor_Size; // The size of an individual memory descriptor
+  EFI_MEMORY_DESCRIPTOR  *Memory_Map;                 // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+  EFI_RUNTIME_SERVICES   *RTServices;                 // UEFI Runtime Services
+  GPU_CONFIG             *GPU_Configs;                // Information about available graphics output devices; see below for details
+  EFI_FILE_INFO          *FileMeta;                   // Kernel64 file metadata
+  void                   *RSDP;                       // A pointer to the RSDP ACPI table
 } LOADER_PARAMS;
 
 //==================================================================================================================================
