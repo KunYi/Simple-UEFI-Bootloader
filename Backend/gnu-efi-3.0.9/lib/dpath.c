@@ -379,7 +379,7 @@ UnpackDevicePath (
             CopyMem (Dest, Src, Size);
             Size += ALIGN_SIZE(Size);
             SetDevicePathNodeLength (Dest, Size);
-            Dest->Type |= EFI_DP_TYPE_UNPACKED;
+//            Dest->Type |= EFI_DP_TYPE_UNPACKED; // !!!!!!!!!!!! What?! This completely breaks DevicePathToStr
             Dest = (EFI_DEVICE_PATH *) (((UINT8 *) Dest) + Size);
 
             if (IsDevicePathEnd(Src)) {
@@ -554,6 +554,221 @@ _DevPathVendor (
     }
 }
 
+// ACPI ADR Type (Type 2, Subtype 3)
+static VOID
+_DevPathAcpiAdr (
+    IN OUT POOL_PRINT       *Str,
+    IN VOID                 *DevPath
+    )
+{
+  ACPI_ADR_DEVICE_PATH *AcpiAdr;
+
+  AcpiAdr = DevPath;
+  if( DevicePathNodeLength(&AcpiAdr->Header) == sizeof(ACPI_ADR_DEVICE_PATH))
+  { // Only one ADR entry
+    CatPrint(Str, L"AcpiADR(0x%X)", AcpiAdr->ADR);
+  }
+  else
+  {
+    UINTN NumADREntries = (DevicePathNodeLength(&AcpiAdr->Header) % 4) - 1; // Header is also 4 bytes, and want to include first ADR. Each ADR is 4 bytes
+
+    CatPrint(Str, L"AcpiADR_0(0x%X)", AcpiAdr->ADR);
+
+    for(UINTN Entry = 1; Entry < NumADREntries; Entry++)
+    {
+      CatPrint(Str, L"AcpiADR_%d(0x%X)", Entry, *(((UINT32*)AcpiAdr) + Entry + 1) ); // 0th UINT32 is header, 1st is ADR_0 (hence the +1).
+    }
+  }
+}
+// End ADR addition
+
+// ACPI Expanded (Type 2, Subtype 2)
+
+static VOID
+_DevPathAcpiExpanded (
+    IN OUT POOL_PRINT       *Str,
+    IN VOID                 *DevPath
+    )
+{
+    EXPANDED_ACPI_HID_DEVICE_PATH        *AcpiExpanded;
+
+    AcpiExpanded = DevPath;
+    if ((AcpiExpanded->HID & PNP_EISA_ID_MASK) == PNP_EISA_ID_CONST) {
+        switch ( EISA_ID_TO_NUM( AcpiExpanded-> HID ) ) {
+            case 0x301 : {
+                CatPrint( Str , L"Keyboard(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            case 0x401 : {
+                CatPrint( Str , L"ParallelPort(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            case 0x501 : {
+                CatPrint( Str , L"Serial(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            case 0x604 : {
+                CatPrint( Str , L"Floppy(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            case 0xa03 : {
+                CatPrint( Str , L"PciRoot(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            case 0xa08 : {
+                CatPrint( Str , L"PcieRoot(%d)" , AcpiExpanded-> UID ) ;
+                break ;
+            }
+            default : {
+                CatPrint( Str , L"AcpiEx(PNP%04x" , EISA_ID_TO_NUM( AcpiExpanded-> HID ) ) ;
+                if ( AcpiExpanded-> UID )
+                {
+                  CatPrint( Str , L",%d" , AcpiExpanded-> UID ) ;
+                }
+                else
+                {
+                  CatPrint( Str , L",0" );
+                }
+                if ( AcpiExpanded-> CID )
+                {
+                  CatPrint( Str , L",0x%x" , AcpiExpanded-> CID ) ;
+                }
+                else
+                {
+                  CatPrint( Str , L",0" );
+                }
+                if( DevicePathNodeLength(&AcpiExpanded->Header) > 19) // Known size
+                {
+                  UINTN bytelength = 0;
+
+                  if(AcpiExpanded->HidStr[0]) // Hidstr has something
+                  {
+                    CatPrint( Str , L",%a", AcpiExpanded->HidStr);
+
+                    UINT8 byte = 0x01;
+                    while(byte != 0x00)
+                    {
+                      byte = (AcpiExpanded->HidStr + bytelength)[0];
+                      bytelength++;
+                    }
+                  }
+                  else // Nothing
+                  {
+                    CatPrint( Str , L",0" );
+                    bytelength++;
+                  }
+
+                  if( (AcpiExpanded->HidStr + bytelength)[0] ) // Uidstr has something
+                  {
+                    CatPrint( Str , L",%a", AcpiExpanded->HidStr + bytelength);
+
+                    UINT8 byte = 0x01;
+                    while(byte != 0x00)
+                    {
+                      byte = (AcpiExpanded->HidStr + bytelength)[0];
+                      bytelength++;
+                    }
+                  }
+                  else // Nothing
+                  {
+                    CatPrint( Str , L",0" );
+                    bytelength++;
+                  }
+
+                  if( (AcpiExpanded->HidStr + bytelength)[0] ) // Cidstr has something
+                  {
+                    CatPrint( Str , L",%a", AcpiExpanded->HidStr + bytelength);
+                  }
+                  else // Nothing
+                  {
+                    CatPrint( Str , L",0" );
+                  }
+
+                }
+                CatPrint( Str , L")" ) ;
+                break ;
+            }
+	}
+    } else {
+        CatPrint( Str , L"AcpiEx(" );
+        if ( AcpiExpanded-> HID )
+        {
+          CatPrint( Str , L"0x%X", AcpiExpanded-> HID ) ;
+        }
+        else
+        {
+          CatPrint( Str , L"0" );
+        }
+        if ( AcpiExpanded-> UID )
+        {
+          CatPrint( Str , L",%d" , AcpiExpanded-> UID ) ;
+        }
+        else
+        {
+          CatPrint( Str , L",0" );
+        }
+        if ( AcpiExpanded-> CID )
+        {
+          CatPrint( Str , L",0x%x" , AcpiExpanded-> CID ) ;
+        }
+        else
+        {
+          CatPrint( Str , L",0" );
+        }
+        if( DevicePathNodeLength(&AcpiExpanded->Header) > 19) // Known size
+        {
+          UINTN bytelength = 0;
+
+          if(AcpiExpanded->HidStr[0]) // Hidstr has something
+          {
+            CatPrint( Str , L",%a", AcpiExpanded->HidStr);
+
+            UINT8 byte = 0x01;
+            while(byte != 0x00)
+            {
+              byte = (AcpiExpanded->HidStr + bytelength)[0];
+              bytelength++;
+            }
+
+          }
+          else // Nothing
+          {
+            CatPrint( Str , L",0" );
+            bytelength++;
+          }
+
+          if( (AcpiExpanded->HidStr + bytelength)[0] ) // Uidstr has something
+          {
+            CatPrint( Str , L",%a", AcpiExpanded->HidStr + bytelength);
+
+            UINT8 byte = 0x01;
+            while(byte != 0x00)
+            {
+              byte = (AcpiExpanded->HidStr + bytelength)[0];
+              bytelength++;
+            }
+          }
+          else // Nothing
+          {
+            CatPrint( Str , L",0" );
+            bytelength++;
+          }
+
+          if( (AcpiExpanded->HidStr + bytelength)[0] ) // Cidstr has something
+          {
+            CatPrint( Str , L",%a", AcpiExpanded->HidStr + bytelength);
+          }
+          else // Nothing
+          {
+            CatPrint( Str , L",0" );
+          }
+
+        }
+        CatPrint( Str , L")" ) ;
+    }
+
+}
+// End ACPI Expanded addition
 
 /*
   Type: 2 (ACPI Device Path) SubType: 1 (ACPI Device Path)
@@ -603,7 +818,7 @@ _DevPathAcpi (
     } else {
         CatPrint( Str , L"Acpi(0x%X" , Acpi-> HID ) ;
         if ( Acpi-> UID ) CatPrint( Str , L",%d" , Acpi-> UID ) ;
-        CatPrint( Str , L")" , Acpi-> HID , Acpi-> UID ) ;
+        CatPrint( Str , L")" ) ; // Hmm... This was originally CatPrint( Str , L")" , Acpi-> HID , Acpi-> UID ) ;
     }
 }
 
@@ -1092,6 +1307,8 @@ struct {
 	{ HARDWARE_DEVICE_PATH,   HW_VENDOR_DP,                     _DevPathVendor},
 	{ HARDWARE_DEVICE_PATH,   HW_CONTROLLER_DP,                 _DevPathController},
 	{ ACPI_DEVICE_PATH,       ACPI_DP,                          _DevPathAcpi},
+  { ACPI_DEVICE_PATH,       EXPANDED_ACPI_DP,                 _DevPathAcpiExpanded},
+  { ACPI_DEVICE_PATH,       ACPI_ADR_DP,                      _DevPathAcpiAdr},
 	{ MESSAGING_DEVICE_PATH,  MSG_ATAPI_DP,                     _DevPathAtapi},
 	{ MESSAGING_DEVICE_PATH,  MSG_SCSI_DP,                      _DevPathScsi},
 	{ MESSAGING_DEVICE_PATH,  MSG_FIBRECHANNEL_DP,              _DevPathFibre},
@@ -1123,7 +1340,7 @@ DevicePathToStr (
     )
 /*++
 
-    Turns the Device Path into a printable string.  Allcoates
+    Turns the Device Path into a printable string.  Allocates
     the string from pool.  The caller must FreePool the returned
     string.
 
@@ -1257,4 +1474,3 @@ LibDuplicateDevicePathInstance (
 
     return NewDevPath;
 }
-

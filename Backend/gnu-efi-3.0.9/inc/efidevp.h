@@ -32,6 +32,8 @@ typedef struct _EFI_DEVICE_PATH_PROTOCOL {
 typedef struct _EFI_DEVICE_PATH_PROTOCOL _EFI_DEVICE_PATH;
 typedef EFI_DEVICE_PATH_PROTOCOL EFI_DEVICE_PATH;
 
+typedef EFI_DEVICE_PATH_PROTOCOL EFI_LOADED_IMAGE_DEVICE_PATH_PROTOCOL; // Not a mistake. Surprised that GNU-EFI was missing this.
+
 #define EFI_DP_TYPE_MASK                    0x7F
 #define EFI_DP_TYPE_UNPACKED                0x80
 
@@ -140,11 +142,31 @@ typedef struct _EXPANDED_ACPI_HID_DEVICE_PATH {
 	UINT8				HidStr[1];
 } EXPANDED_ACPI_HID_DEVICE_PATH;
 
-#define ACPI_ADR_DP 3
+#define ACPI_ADR_DP  0x03 // ...
 typedef struct _ACPI_ADR_DEVICE_PATH {
-    EFI_DEVICE_PATH_PROTOCOL Header ;
-    UINT32 ADR ;
-} ACPI_ADR_DEVICE_PATH ;
+    EFI_DEVICE_PATH_PROTOCOL Header;
+    UINT32 ADR;
+} ACPI_ADR_DEVICE_PATH; // There may be additional ADR entries. Always check length of this structure.
+
+// _ADR type from GNU-EFI is missing this stuff. Pulled from https://github.com/tianocore/edk2/blob/master/MdePkg/Include/Protocol/DevicePath.h
+
+#define ACPI_ADR_DISPLAY_TYPE_OTHER             0
+#define ACPI_ADR_DISPLAY_TYPE_VGA               1
+#define ACPI_ADR_DISPLAY_TYPE_TV                2
+#define ACPI_ADR_DISPLAY_TYPE_EXTERNAL_DIGITAL  3
+#define ACPI_ADR_DISPLAY_TYPE_INTERNAL_DIGITAL  4
+
+#define ACPI_DISPLAY_ADR(_DeviceIdScheme, _HeadId, _NonVgaOutput, _BiosCanDetect, _VendorInfo, _Type, _Port, _Index) \
+          ((UINT32)(  ((UINT32)((_DeviceIdScheme) & 0x1) << 31) |  \
+                      (((_HeadId)                 & 0x7) << 18) |  \
+                      (((_NonVgaOutput)           & 0x1) << 17) |  \
+                      (((_BiosCanDetect)          & 0x1) << 16) |  \
+                      (((_VendorInfo)             & 0xf) << 12) |  \
+                      (((_Type)                   & 0xf) << 8)  |  \
+                      (((_Port)                   & 0xf) << 4)  |  \
+                       ((_Index)                  & 0xf) ))
+
+// End ADR addition
 
 //
 // EISA ID Macro
@@ -159,7 +181,6 @@ typedef struct _ACPI_ADR_DEVICE_PATH {
 
 #define PNP_EISA_ID_MASK        0xffff
 #define EISA_ID_TO_NUM(_Id)     ((_Id) >> 16)
-
 
 /*
  * Messaging Device Path (UEFI 2.4 specification, version 2.4 § 9.3.5.)

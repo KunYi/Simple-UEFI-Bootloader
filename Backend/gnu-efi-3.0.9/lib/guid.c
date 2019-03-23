@@ -44,6 +44,7 @@ static EFI_GUID SMapId                 = DEVICE_PATH_MAPPING_ID;
 static EFI_GUID SProtId                = PROTOCOL_ID_ID;
 static EFI_GUID SAliasId               = ALIAS_ID;
 
+// Added more to this
 static struct {
     EFI_GUID        *Guid;
     WCHAR           *GuidName;
@@ -60,11 +61,19 @@ static struct {
 	{  &gEfiBlockIo2ProtocolGuid,                       L"BlkIo2" },
 	{  &gEfiDiskIoProtocolGuid,                         L"DskIo" },
 	{  &gEfiDiskIo2ProtocolGuid,                        L"DskIo2" },
-	{  &gEfiSimpleFileSystemProtocolGuid,               L"Fs" },
+	{  &gEfiSimpleFileSystemProtocolGuid,               L"SimpFs" },
 	{  &gEfiLoadFileProtocolGuid,                       L"LdFile" },
 	{  &gEfiDeviceIoProtocolGuid,                       L"DevIo" },
 	{  &gEfiComponentNameProtocolGuid,                  L"CName" },
 	{  &gEfiComponentName2ProtocolGuid,                 L"CName2" },
+
+  {  &gEfiDriverBindingProtocolGuid,                  L"DrvBind" },
+  {  &gEfiPciIoProtocolGuid,                          L"PciIo" },
+  {  &gEfiPciRootBridgeIoProtocolGuid,                L"PciRtBrdgeIo" },
+  {  &gEfiGraphicsOutputProtocolGuid,                 L"GOP" },
+  {  &gEfiDevicePathToTextProtocolGuid,               L"DevPathToTxt" },
+  {  &gEfiDevicePathFromTextProtocolGuid,             L"DevPathFromTxt" },
+  {  &gEfiLoadedImageDevicePathProtocolGuid,          L"LdImgDevPath" },
 
 	{  &gEfiFileInfoGuid,                               L"FileInfo" },
 	{  &gEfiFileSystemInfoGuid,                         L"FsInfo" },
@@ -88,8 +97,27 @@ static struct {
 	{  &gEfiVTUTF8Guid,                                 L"VtUtf8" },
 	{  &UnknownDevice,                                  L"UnknownDev" },
 
+  {  &gEfiConsoleOutDeviceGuid,                       L"ConOutDevice" },
+  {  &gEfiStandardErrorDeviceGuid,                    L"StdErrDevice" },
+  {  &gEfiUgaDrawProtocolGuid,                        L"UGADraw" },
+
+  {  &gEfiEdidDiscoveredProtocolGuid,                 L"EdidDiscovered" },
+  {  &gEfiEdidActiveProtocolGuid,                     L"EdidActive" },
+  {  &gEfiEdidOverrideProtocolGuid,                   L"EdidOverride" },
+
+  {  &SimplePointerProtocol,                          L"SimpPtr" },
+  {  &AbsolutePointerProtocol,                        L"AbsPtr" },
+
+  {  &gEfiDriverSupportedEfiVersionProtocolGuid,      L"DrvSupEfiVer" },
+  {  &gEfiDriverDiagnosticsProtocolGuid,              L"DrvDiag" },
+  {  &gEfiDriverDiagnostics2ProtocolGuid,             L"DrvDiag2" },
+  {  &gEfiDriverConfigurationProtocolGuid,            L"DrvConfig" },
+
 	{  &EfiPartTypeSystemPartitionGuid,                 L"ESP" },
 	{  &EfiPartTypeLegacyMbrGuid,                       L"GPT MBR" },
+
+  {  &gEfiUsbPolicyProtocolGuid,                      L"UsbPol" },
+  {  &gEfiUsbTimingPolicyProtocolGuid,                L"UsbTimPol" },
 
 	{  &ShellInterfaceProtocol,                         L"ShellInt" },
 	{  &SEnvId,                                         L"SEnv" },

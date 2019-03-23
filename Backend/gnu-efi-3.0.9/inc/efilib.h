@@ -45,6 +45,8 @@ extern EFI_GUID gEfiDevicePathToTextProtocolGuid;
 #define DevicePathToTextProtocol gEfiDevicePathToTextProtocolGuid
 extern EFI_GUID gEfiDevicePathFromTextProtocolGuid;
 #define DevicePathFromTextProtocol gEfiDevicePathFromTextProtocolGuid
+extern EFI_GUID gEfiLoadedImageDevicePathProtocolGuid;
+#define LoadedImageDevicePathProtocol gEfiLoadedImageDevicePathProtocolGuid
 extern EFI_GUID gEfiLoadedImageProtocolGuid;
 #define LoadedImageProtocol gEfiLoadedImageProtocolGuid
 extern EFI_GUID gEfiSimpleTextInProtocolGuid;
@@ -145,6 +147,110 @@ extern EFI_GUID AbsolutePointerProtocol;
 
 extern EFI_GUID gEfiDebugImageInfoTableGuid;
 extern EFI_GUID gEfiDebugSupportProtocolGuid;
+
+// Others (GNU_EFI is missing a number of protocols, so I'm adding some definitions here)
+extern EFI_GUID gEfiDriverSupportedEfiVersionProtocolGuid;
+#define DriverSupportedEfiVersionProtocol gEfiDriverSupportedEfiVersionProtocolGuid;
+
+///
+/// The EFI_DRIVER_SUPPORTED_EFI_VERSION_PROTOCOL provides a
+/// mechanism for an EFI driver to publish the version of the EFI
+/// specification it conforms to. This protocol must be placed on
+/// the driver's image handle when the driver's entry point is
+/// called.
+///
+typedef struct _EFI_DRIVER_SUPPORTED_EFI_VERSION_PROTOCOL {
+  ///
+  /// The size, in bytes, of the entire structure. Future versions of this
+  /// specification may grow the size of the structure.
+  ///
+  UINT32 Length;
+  ///
+  /// The latest version of the UEFI specification that this driver conforms to.
+  ///
+  UINT32 FirmwareVersion;
+} EFI_DRIVER_SUPPORTED_EFI_VERSION_PROTOCOL;
+
+// The below "Others" are not supported for use (no function pointers or structures are implemented for them),
+// but are adapted from EDKII and included for GUID matching purposes:
+extern EFI_GUID gEfiStandardErrorDeviceGuid;
+#define StandardErrorDevice gEfiStandardErrorDeviceGuid
+extern EFI_GUID gEfiUgaDrawProtocolGuid;
+#define UgaDrawProtocol gEfiUgaDrawProtocolGuid
+extern EFI_GUID gEfiConsoleOutDeviceGuid;
+#define ConsoleOutDevice gEfiConsoleOutDeviceGuid
+extern EFI_GUID gEfiConsoleInDeviceGuid;
+#define ConsoleInDevice gEfiConsoleInDeviceGuid
+extern EFI_GUID gEfiSimpleTextInExProtocolGuid;
+#define SimpleTextInExProtocol gEfiSimpleTextInExProtocolGuid
+
+extern EFI_GUID gEfiDriverDiagnosticsProtocolGuid;
+#define DriverDiagnosticsProtocol gEfiDriverDiagnosticsProtocolGuid
+extern EFI_GUID gEfiDriverDiagnostics2ProtocolGuid;
+#define DriverDiagnostics2Protocol gEfiDriverDiagnostics2ProtocolGuid
+extern EFI_GUID gEfiDriverConfigurationProtocolGuid;
+#define DriverConfigurationProtocol gEfiDriverConfigurationProtocolGuid
+
+extern EFI_GUID gEfiUsbPolicyProtocolGuid;
+#define UsbPolicyProtocol gEfiUsbPolicyProtocolGuid
+extern EFI_GUID gEfiUsbTimingPolicyProtocolGuid;
+#define UsbTimingPolicyProtocol gEfiUsbTimingPolicyProtocolGuid
+extern EFI_GUID gEfiUsbIoProtocolGuid;
+#define UsbIoProtocol gEfiUsbIoProtocolGuid
+extern EFI_GUID gEfiUsb2HcProtocolGuid;
+#define Usb2HcProtocol gEfiUsb2HcProtocolGuid
+extern EFI_GUID gEfiUsbHcProtocolGuid;
+#define UsbHcProtocol gEfiUsbHcProtocolGuid
+
+extern EFI_GUID gEfiDataHubProtocolGuid;
+#define DataHubProtocol gEfiDataHubProtocolGuid
+extern EFI_GUID gEfiConsoleInDevicesStartedGuid;
+#define ConsoleInDevicesStarted gEfiConsoleInDevicesStartedGuid
+extern EFI_GUID gEfiConsoleOutDevicesStartedGuid;
+#define ConsoleOutDevicesStarted gEfiConsoleOutDevicesStartedGuid
+extern EFI_GUID gEfiPlatformIDEProtocolGuid;
+#define PlatformIDEProtocol gEfiPlatformIDEProtocolGuid
+extern EFI_GUID gEfiDiskInfoProtocolGuid;
+#define DiskInfoProtocol gEfiDiskInfoProtocolGuid
+extern EFI_GUID gEfiScsiIoProtocolGuid;
+#define ScsiIoProtocol gEfiScsiIoProtocolGuid
+extern EFI_GUID gEfiExtScsiPassThruProtocolGuid;
+#define ExtScsiPassThruProtocol gEfiExtScsiPassThruProtocolGuid
+
+extern EFI_GUID gEfiFirmwareVolume2ProtocolGuid;
+#define FirmwareVolume2Protocol gEfiFirmwareVolume2ProtocolGuid
+extern EFI_GUID gEfiFirmwareVolumeBlockProtocolGuid;
+#define FirmwareVolumeBlockProtocol gEfiFirmwareVolumeBlockProtocolGuid
+extern EFI_GUID gEfiFirmwareVolumeDispatchProtocolGuid;
+#define FirmwareVolumeDispatchProtocol gEfiFirmwareVolumeDispatchProtocolGuid
+
+extern EFI_GUID gEfiLoadFile2ProtocolGuid;
+#define LoadFile2Protocol gEfiLoadFile2ProtocolGuid
+extern EFI_GUID gEfiSioProtocolGuid;
+#define SioProtocol gEfiSioProtocolGuid;
+extern EFI_GUID gEfiIdeControllerInitProtocolGuid;
+#define IdeControllerInitProtocol gEfiIdeControllerInitProtocolGuid
+extern EFI_GUID gEfiStorageSecurityCommandProtocolGuid;
+#define StorageSecurityCommandProtocol gEfiStorageSecurityCommandProtocolGuid
+extern EFI_GUID gEfiHiiConfigAccessProtocolGuid;
+#define HiiConfigAccessProtocol gEfiHiiConfigAccessProtocolGuid
+
+// There's also a different gEfiNetworkInterfaceIdentifierProtocolGuid, which looks like it's actually implemented in GNU-EFI
+extern EFI_GUID gEfiNetworkInterfaceIdentifierProtocolGuid_31;
+
+extern EFI_GUID gAmiEfikeycodeProtocolGuid;
+extern EFI_GUID gHotPlugDeviceGuid;
+
+extern EFI_GUID gHddUnlockedGuid;
+extern EFI_GUID gHddSecurityEndProtocolGuid;
+extern EFI_GUID gAhciBusInitProtocolGuid;
+extern EFI_GUID gPchSataControllerDriverGuid;
+
+// Don't know if this is right. See data.c
+extern EFI_GUID gIntelGopGuid;
+
+// End Others
+
 
 //
 // EFI Variable strings
