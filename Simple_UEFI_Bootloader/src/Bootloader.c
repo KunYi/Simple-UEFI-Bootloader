@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Bootloader Entrypoint
 //==================================================================================================================================
 //
-// Version 1.3
+// Version 1.4
 //
 // Author:
 //  KNNSpeed
@@ -57,7 +57,7 @@
 #include "Bootloader.h"
 
 #define MAJOR_VER 1
-#define MINOR_VER 3
+#define MINOR_VER 4
 
 //==================================================================================================================================
 //  efi_main: Main Function

@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Graphics Functions
 //==================================================================================================================================
 //
-// Version 1.3
+// Version 1.4
 //
 // Author:
 //  KNNSpeed
@@ -14,6 +14,11 @@
 //
 
 #include "Bootloader.h"
+#define GOP_NAMING_DEBUG_ENABLED
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray);
+#endif
 
 //==================================================================================================================================
 //  InitUEFI_GOP: Graphics Initialization
@@ -66,8 +71,17 @@
 */
 //
 
+// This array is a global variable so that it can be made static, which helps prevent a stack overflow if it ever needs to lengthen.
+STATIC CONST CHAR16 PxFormats[5][17] = {
+    L"RGBReserved 8Bpp",
+    L"BGRReserved 8Bpp",
+    L"PixelBitMask    ",
+    L"PixelBltOnly    ",
+    L"PixelFormatMax  "
+};
+
 EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
-{ // Declaring a pointer only allocates 8 bytes (x64) for that pointer. Every pointer's destination must be manually allocated memory via AllocatePool and then freed with FreePool when done with.
+{ // Declaring a pointer only allocates 8 bytes (x64) for that pointer. Buffers must be manually allocated memory via AllocatePool and then freed with FreePool when done with.
 
   Graphics->NumberOfFrameBuffers = 0;
 
@@ -76,30 +90,28 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   UINT64 GOPInfoSize;
   UINT32 mode;
   UINTN NumHandlesInHandleBuffer = 0; // Number of discovered graphics handles (GPUs)
+  UINTN NumName2Handles = 0;
+  UINTN NumDriverHandles = 0;
+  UINTN NumDevPathHandles = 0;
   UINT64 DevNum = 0;
   EFI_INPUT_KEY Key;
 
-  CHAR16 * PxFormats[] = {
-      L"RGBReserved 8Bpp",
-      L"BGRReserved 8Bpp",
-      L"PixelBitMask",
-      L"PixelBltOnly",
-      L"PixelFormatMax"
-  };
-
   Key.UnicodeChar = 0;
 
-// Commented out on account of GPU name search's not working right
-/*
-  UINTN Name2HandlesInHandleBuffer2 = 0; // Number of discovered handles (devices)
-  // There was only supposed to be one of these, but for some reason vendors go all over the place...
+//-->
+  // Vendors go all over the place with these...
   CHAR8 LanguageToUse[6] = {'e','n','-','U','S','\0'};
   CHAR8 LanguageToUse2[3] = {'e','n','\0'};
   CHAR8 LanguageToUse3[4] = {'e','n','g','\0'};
 
-  CHAR16 *DriverDisplayName = L"No Driver Name";
-  CHAR16 *ControllerDisplayName = L"No Controller Name";
-*/
+  CHAR16 DefaultDriverDisplayName[15] = L"No Driver Name";
+  CHAR16 DefaultControllerDisplayName[19] = L"No Controller Name";
+  CHAR16 DefaultChildDisplayName[14] = L"No Child Name";
+
+  CHAR16 * DriverDisplayName = DefaultDriverDisplayName;
+  CHAR16 * ControllerDisplayName = DefaultControllerDisplayName;
+  CHAR16 * ChildDisplayName = DefaultChildDisplayName;
+//-->
 
   // We can pick which graphics output device we want (handy for multi-GPU setups)...
   EFI_HANDLE *GraphicsHandles; // Array of discovered graphics handles that support the Graphics Output Protocol
@@ -120,116 +132,496 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Print(L"There are %llu UEFI graphics devices:\r\n", NumHandlesInHandleBuffer);
   }
 
-// NOTE: This commented out section is an attempt at getting the GPU names. For some reason, it just doesn't always work.
-// Maybe it's just vendors not properly supporting the spec, if it's not a semantic bug?
-// If someone comes across this one day and can figure it out, it'll get implemented, but it's not particularly important.
-/*
-  // List GPUs (if they don't have Name2 protocol support, they'll be named "-1")
-  // List all Name2Handles in system because we need them
-  EFI_HANDLE *Name2Handles; // Array of discovered handles that support the NAME2 protocol
-  GOPStatus = BS->LocateHandleBuffer(ByProtocol, &ComponentName2Protocol, NULL, &Name2HandlesInHandleBuffer2, &Name2Handles); // This automatically allocates pool for GraphicsHandles
+//-->
+  // List all GPUs
+
+  // Get all NAME2-supporting handles
+  EFI_HANDLE *Name2Handles;
+
+  GOPStatus = BS->LocateHandleBuffer(ByProtocol, &ComponentName2Protocol, NULL, &NumName2Handles, &Name2Handles); // This automatically allocates pool for Name2Handles
   if(EFI_ERROR(GOPStatus))
   {
     Print(L"Name2Handles LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
     return GOPStatus;
   }
 
+  EFI_HANDLE *DriverHandles;
+
+  GOPStatus = BS->LocateHandleBuffer(ByProtocol, &DriverBindingProtocol, NULL, &NumDriverHandles, &DriverHandles); // This automatically allocates pool for DriverHandles
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"DriverHandles LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+
+  EFI_HANDLE *DevPathHandles;
+
+  GOPStatus = BS->LocateHandleBuffer(ByProtocol, &DevicePathProtocol, NULL, &NumDevPathHandles, &DevPathHandles); // This automatically allocates pool for DevPathHandles
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"DevPathHandles LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+
 #ifdef GOP_NAMING_DEBUG_ENABLED
-  Print(L"Number of Name2Handles: %llu\r\n", Name2HandlesInHandleBuffer2);
+  Print(L"Number of Name2Handles: %llu\r\n", NumName2Handles);
+  Print(L"Number of DriverHandles: %llu\r\n", NumDriverHandles);
+  Print(L"Number of DevPathHandles: %llu\r\n", NumDevPathHandles);
 #endif
+
+//DEBUG
+#ifdef GOP_NAMING_DEBUG_ENABLED
+//  WhatProtocols(GraphicsHandles, NumHandlesInHandleBuffer);
+//  WhatProtocols(Name2Handles, NumName2Handles);
+//  WhatProtocols(DriverHandles, NumDriverHandles);
+//  WhatProtocols(DevPathHandles, NumDevPathHandles);
+#endif
+//DEBUG
 
   for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
   {
-    DriverDisplayName = L"No Driver Name";
-    ControllerDisplayName = L"No Controller Name";
+    DriverDisplayName = DefaultDriverDisplayName;
+    ControllerDisplayName = DefaultControllerDisplayName;
+    ChildDisplayName = DefaultChildDisplayName;
 
-    for(UINT64 k = 0; k < Name2HandlesInHandleBuffer2; k++)
+    EFI_DEVICE_PATH *DevicePath_Graphics; // For GraphicsHandles, they'll always have a devpath because they use ACPI _ADR and they describe a physical output device
+
+    GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &DevicePathProtocol, (void**)&DevicePath_Graphics, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // Need Device Path Node of GOP device
+    if(GOPStatus == EFI_SUCCESS)
     {
-      EFI_COMPONENT_NAME2_PROTOCOL *DeviceName;
-//
-//      GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_COMPONENT_NAME2_PROTOCOL), (void**)&DeviceName); // All EfiBootServicesData get freed on ExitBootServices()
-//      if(EFI_ERROR(GOPStatus))
-//      {
-//        Print(L"DeviceName AllocatePool error. 0x%llx\r\n", GOPStatus);
-//        return GOPStatus;
-//      }
+      UINTN CntlrPathSize = DevicePathSize(DevicePath_Graphics) - DevicePathNodeLength(DevicePath_Graphics) + 4; // Add 4 bytes to account for the end node
+//      Print(L"DevPathStructBytes: 0x%x, PathBytes: 0x%016llx%016llx%016llx\r\n", *(DevicePath_Graphics), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 20), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 12), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 4)); // DevicePath struct is 4 bytes
+      Print(L"a. DevPathGraphics: %s, CntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_Graphics), CntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+      Keywait(L"\0");
+      // Find the controller that corresponds to the GraphicsHandle's device path
 
-      GOPStatus = BS->OpenProtocol(Name2Handles[k], &ComponentName2Protocol, (void**)&DeviceName, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"DeviceName OpenProtocol error. 0x%llx\r\n", GOPStatus);
-        return GOPStatus;
-      }
+      EFI_DEVICE_PATH *DevicePath_DevPath;
+      UINT64 CntlrIndex = 0;
 
-      GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse, &DriverDisplayName);
-      if(GOPStatus == EFI_UNSUPPORTED)
+      for(CntlrIndex = 0; CntlrIndex < NumDevPathHandles; CntlrIndex++)
       {
-        GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse2, &DriverDisplayName);
-        if(GOPStatus == EFI_UNSUPPORTED)
+        // Per https://github.com/tianocore/edk2/blob/master/ShellPkg/Library/UefiShellDriver1CommandsLib/DevTree.c
+        // Controllers don't have DriverBinding or LoadedImage
+        Print(L"b. CntlrIndex: %llu\r\n", CntlrIndex);
+
+        GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DriverBindingProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+        if (!EFI_ERROR (GOPStatus))
         {
-          GOPStatus = DeviceName->GetDriverName(DeviceName, LanguageToUse3, &DriverDisplayName);
+          continue;
         }
-      }
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"DeviceName GetDriverName error. 0x%llx\r\n", GOPStatus);
-        if(GOPStatus == EFI_UNSUPPORTED)
+
+        GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &LoadedImageProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+        if (!EFI_ERROR (GOPStatus))
         {
-          // This is the format of the language, since it isn't "en-US" or "en"
-          // It will need to be implemented like the above arrays
-          Print(L"First 10 language characters look like this:\r\n");
-          for(UINT32 p = 0; p < 10; p++)
+          continue;
+        }
+
+        // TODO: Maybe we don't need this filter anymore
+        // The controllers we want also don't have SimpFs, which seems to cause crashes if we don't skip them. Apparently if a FAT32 controller handle is paired with an NTFS driver, the system locks up.
+        GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &FileSystemProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+        if (!EFI_ERROR (GOPStatus))
+        {
+          continue;
+        }
+
+        Print(L"c. Filtered CntlrIndex: %llu\r\n", CntlrIndex);
+
+        // Get controller's device path
+        GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DevicePathProtocol, (void**)&DevicePath_DevPath, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+        if(EFI_ERROR(GOPStatus))
+        {
+          Print(L"DevPathHandles OpenProtocol error. 0x%llx\r\n", GOPStatus);
+          return GOPStatus;
+        }
+
+        // Match device paths; DevPath is a Multi, Graphics is a Single
+        // This will fail on certain kinds of systems, like Hyper-V VMs. This method is made with PCI-Express graphics devices in mind.
+        UINTN ThisCntlrPathSize = DevicePathSize(DevicePath_DevPath);
+
+        Print(L"d. DevPathDevPath: %s, ThisCntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_DevPath), ThisCntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+        Keywait(L"\0");
+        if(ThisCntlrPathSize != CntlrPathSize)
+        { // Might be something like PciRoot(0), which would match DevPath_Graphics for a PCI-E GPU without this check
+          continue;
+        }
+
+        if(LibMatchDevicePaths(DevicePath_DevPath, DevicePath_Graphics))
+        {
+          // Found it. The desired controller is DevPathHandles[CntlrIndex]
+
+          Print(L"e. Above DevPathDevPath matched DevPathGraphics %llu, CntlrIndex: %llu\r\n", DevNum, CntlrIndex);
+
+          // Now match controller to its Name2-supporting driver
+          for(UINT64 Name2DriverIndex = 0; Name2DriverIndex < NumName2Handles; Name2DriverIndex++)
           {
-            Print(L"%c", DeviceName->SupportedLanguages[p]);
-          }
-          Print(L"\r\n");
-        }
-        return GOPStatus;
-      }
+            Print(L"f. Name2DriverIndex: %llu\r\n", Name2DriverIndex);
 
-      GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse, &ControllerDisplayName);
-      if(GOPStatus == EFI_UNSUPPORTED)
-      {
-        GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse2, &ControllerDisplayName);
-        if(GOPStatus == EFI_UNSUPPORTED)
-        {
-          GOPStatus = DeviceName->GetControllerName(DeviceName, Name2Handles[k], GraphicsHandles[DevNum], LanguageToUse3, &ControllerDisplayName);
-        }
-      }
+            // Check if Name2Handles[Name2DriverIndex] manages the DevPathHandles[CntlrIndex] controller
+            // See EfiTestManagedDevice at
+            // https://github.com/tianocore-docs/edk2-UefiDriverWritersGuide/blob/master/11_uefi_driver_and_controller_names/113_getcontrollername_implementations/1132_bus_drivers_and_hybrid_drivers.md
+            // and the implementation at https://github.com/tianocore/edk2/blob/master/MdePkg/Library/UefiLib/UefiLib.c
+
+            VOID * ManagedInterface; // Need a throwaway pointer for OpenProtocol BY_DRIVER
+
+            GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &PciIoProtocol, &ManagedInterface, Name2Handles[Name2DriverIndex], DevPathHandles[CntlrIndex], EFI_OPEN_PROTOCOL_BY_DRIVER);
+            if(!EFI_ERROR(GOPStatus))
+            {
+              GOPStatus = BS->CloseProtocol(DevPathHandles[CntlrIndex], &PciIoProtocol, Name2Handles[Name2DriverIndex], DevPathHandles[CntlrIndex]);
+              if(EFI_ERROR(GOPStatus))
+              {
+                Print(L"DevPathHandles Name2Handles CloseProtocol error. 0x%llx\r\n", GOPStatus);
+                return GOPStatus;
+              }
+              // No match!
+              continue;
+            }
+            else if(GOPStatus != EFI_ALREADY_STARTED)
+            {
+              // No match!
+              continue;
+            }
+            // Yes, found it! Get names.
+
+            Print(L"i. Success! CntlrIndex %llu, Name2DriverIndex: %llu, DevNum: %llu\r\n", CntlrIndex, Name2DriverIndex, DevNum);
+
+            EFI_COMPONENT_NAME2_PROTOCOL *Name2Device;
+
+            // Open Name2 Protocol
+            GOPStatus = BS->OpenProtocol(Name2Handles[Name2DriverIndex], &ComponentName2Protocol, (void**)&Name2Device, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+            if(EFI_ERROR(GOPStatus))
+            {
+              Print(L"Name2Device OpenProtocol error. 0x%llx\r\n", GOPStatus);
+              return GOPStatus;
+            }
+
+            // Get driver's name
+            GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse, &DriverDisplayName);
+            if(GOPStatus == EFI_UNSUPPORTED)
+            {
+              GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse2, &DriverDisplayName);
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse3, &DriverDisplayName);
+              }
+            }
+            if(EFI_ERROR(GOPStatus))
+            {
+
 #ifdef GOP_NAMING_DEBUG_ENABLED
-      if(EFI_ERROR(GOPStatus))
+              Print(L"Name2Device GetDriverName error. 0x%llx\r\n", GOPStatus);
+
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                // This is the format of the language, since it isn't "en-US" or "en"
+                // It will need to be implemented like the above arrays
+                Print(L"First 10 language characters look like this:\r\n");
+                for(UINT32 p = 0; p < 10; p++)
+                {
+                  Print(L"%c", Name2Device->SupportedLanguages[p]);
+                }
+                Print(L"\r\n");
+
+                Keywait(L"\0");
+              }
+#endif
+              // You know, we have specifications for a reason.
+              // Those who refuse to follow them get this.
+              DriverDisplayName = DefaultDriverDisplayName;
+            }
+            // Got driver's name
+            Print(L"j. Got driver name\r\n");
+
+            // Get controller's name
+            GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse, &ControllerDisplayName); // The child should be NULL to get the controller's name.
+            if(GOPStatus == EFI_UNSUPPORTED)
+            {
+              GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse2, &ControllerDisplayName);
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse3, &ControllerDisplayName);
+              }
+            }
+            if(EFI_ERROR(GOPStatus))
+            {
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"Name2Device GetControllerName error. 0x%llx\r\n", GOPStatus); // Enable this to diagnose crashes due to controller name matching.
+#endif
+              // You know, we have specifications for a reason.
+              // Those who refuse to follow them get this.
+              ControllerDisplayName = DefaultControllerDisplayName;
+            }
+            // Got controller's name
+            Print(L"k. Got controller name\r\n");
+
+            // Get child's name
+            GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse, &ChildDisplayName);
+            if(GOPStatus == EFI_UNSUPPORTED)
+            {
+              GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse2, &ChildDisplayName);
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse3, &ChildDisplayName);
+              }
+            }
+            if(EFI_ERROR(GOPStatus))
+            {
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"Name2Device GetControllerName ChildName error. 0x%llx\r\n", GOPStatus);
+#endif
+              // You know, we have specifications for a reason.
+              // Those who refuse to follow them get this.
+              ChildDisplayName = DefaultChildDisplayName;
+            }
+
+            Print(L"l. Got names\r\n");
+            // Got child's name
+            break;
+
+          } // End for Name2DriverIndex
+          break;
+        } // End if match controller to GraphicsHandle's device path
+      } // End for CntlrIndex
+
+
+      // After all that, if still no name, it's probably a VM or something weird that doesn't implement ACPI ADR.
+      // Let's try not shortening the device path:
+/*
+      if((ControllerDisplayName == DefaultControllerDisplayName) && (DriverDisplayName == DefaultDriverDisplayName) && (ChildDisplayName == DefaultChildDisplayName))
       {
-        Print(L"DeviceName GetControllerName error. 0x%llx\r\n", GOPStatus);
-      }
-      Print(L"%llu. 0x%llx, 0x%llx - %s: %s\r\n", k, GraphicsHandles[DevNum], Name2Handles[k], DriverDisplayName, ControllerDisplayName);
+        Print(L"\r\nFunky graphics device here.\r\n");
+        CntlrPathSize = DevicePathSize(DevicePath_Graphics);
+
+  //      Print(L"DevPathStructBytes: 0x%x, PathBytes: 0x%016llx%016llx%016llx\r\n", *(DevicePath_Graphics), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 20), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 12), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 4)); // DevicePath struct is 4 bytes
+        Print(L"a. DevPathGraphics: %s, CntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_Graphics), CntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+        Keywait(L"\0");
+        // Find the controller that corresponds to the GraphicsHandle's device path
+
+//        EFI_DEVICE_PATH *DevicePath_DevPath;
+//        UINT64 CntlrIndex = 0;
+
+        for(CntlrIndex = 0; CntlrIndex < NumDevPathHandles; CntlrIndex++)
+        {
+          // Per https://github.com/tianocore/edk2/blob/master/ShellPkg/Library/UefiShellDriver1CommandsLib/DevTree.c
+          // Controllers don't have DriverBinding or LoadedImage
+          Print(L"b. CntlrIndex: %llu\r\n", CntlrIndex);
+
+          // All bets are off for funky devices
+
+          Print(L"c. Filtered CntlrIndex: %llu\r\n", CntlrIndex);
+
+          // Get controller's device path
+          GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DevicePathProtocol, (void**)&DevicePath_DevPath, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+          if(EFI_ERROR(GOPStatus))
+          {
+            Print(L"DevPathHandles OpenProtocol error. 0x%llx\r\n", GOPStatus);
+            return GOPStatus;
+          }
+
+          // Match device paths; DevPath is a Multi, Graphics is a Single
+          // This will fail on certain kinds of systems, like Hyper-V VMs. This method is made with PCI-Express graphics devices in mind.
+          UINTN ThisCntlrPathSize = DevicePathSize(DevicePath_DevPath);
+
+          Print(L"d. DevPathDevPath: %s, ThisCntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_DevPath), ThisCntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+          Keywait(L"\0");
+          if(ThisCntlrPathSize != CntlrPathSize)
+          { // Might be something like PciRoot(0), which would match DevPath_Graphics for a PCI-E GPU without this check
+            continue;
+          }
+
+          if(LibMatchDevicePaths(DevicePath_DevPath, DevicePath_Graphics))
+          {
+            // Found it. The desired controller is DevPathHandles[CntlrIndex]
+
+            Print(L"e. Above DevPathDevPath matched DevPathGraphics %llu, CntlrIndex: %llu\r\n", DevNum, CntlrIndex);
+
+            // Now match controller to its Name2-supporting driver
+            for(UINT64 Name2DriverIndex = 0; Name2DriverIndex < NumName2Handles; Name2DriverIndex++)
+            {
+              Print(L"f. Name2DriverIndex: %llu\r\n", Name2DriverIndex);
+
+              // Check if Name2Handles[Name2DriverIndex] manages the DevPathHandles[CntlrIndex] controller
+              // See EfiTestManagedDevice at
+              // https://github.com/tianocore-docs/edk2-UefiDriverWritersGuide/blob/master/11_uefi_driver_and_controller_names/113_getcontrollername_implementations/1132_bus_drivers_and_hybrid_drivers.md
+              // and the implementation at https://github.com/tianocore/edk2/blob/master/MdePkg/Library/UefiLib/UefiLib.c
+              WhatProtocols(DevPathHandles[CntlrIndex], 1);
+
+              VOID * ManagedInterface; // Need a throwaway pointer for OpenProtocol BY_DRIVER
+
+              GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &PciIoProtocol, &ManagedInterface, Name2Handles[Name2DriverIndex], DevPathHandles[CntlrIndex], EFI_OPEN_PROTOCOL_BY_DRIVER);
+              if(!EFI_ERROR(GOPStatus))
+              {
+                GOPStatus = BS->CloseProtocol(DevPathHandles[CntlrIndex], &PciIoProtocol, Name2Handles[Name2DriverIndex], DevPathHandles[CntlrIndex]);
+                if(EFI_ERROR(GOPStatus))
+                {
+                  Print(L"DevPathHandles Name2Handles CloseProtocol error. 0x%llx\r\n", GOPStatus);
+                  return GOPStatus;
+                }
+                // No match!
+                continue;
+              }
+              else if(GOPStatus != EFI_ALREADY_STARTED)
+              {
+                // No match!
+                continue;
+              }
+              // Yes, found it! Get names.
+
+              Print(L"i. Success! CntlrIndex %llu, Name2DriverIndex: %llu, DevNum: %llu\r\n", CntlrIndex, Name2DriverIndex, DevNum);
+
+              EFI_COMPONENT_NAME2_PROTOCOL *Name2Device;
+
+              // Open Name2 Protocol
+              GOPStatus = BS->OpenProtocol(Name2Handles[Name2DriverIndex], &ComponentName2Protocol, (void**)&Name2Device, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+              if(EFI_ERROR(GOPStatus))
+              {
+                Print(L"Name2Device OpenProtocol error. 0x%llx\r\n", GOPStatus);
+                return GOPStatus;
+              }
+
+              // Get driver's name
+              GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse, &DriverDisplayName);
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse2, &DriverDisplayName);
+                if(GOPStatus == EFI_UNSUPPORTED)
+                {
+                  GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse3, &DriverDisplayName);
+                }
+              }
+              if(EFI_ERROR(GOPStatus))
+              {
+
+  #ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Name2Device GetDriverName error. 0x%llx\r\n", GOPStatus);
+
+                if(GOPStatus == EFI_UNSUPPORTED)
+                {
+                  // This is the format of the language, since it isn't "en-US" or "en"
+                  // It will need to be implemented like the above arrays
+                  Print(L"First 10 language characters look like this:\r\n");
+                  for(UINT32 p = 0; p < 10; p++)
+                  {
+                    Print(L"%c", Name2Device->SupportedLanguages[p]);
+                  }
+                  Print(L"\r\n");
+
+                  Keywait(L"\0");
+                }
+  #endif
+                // You know, we have specifications for a reason.
+                // Those who refuse to follow them get this.
+                DriverDisplayName = DefaultDriverDisplayName;
+              }
+              // Got driver's name
+              Print(L"j. Got driver name\r\n");
+
+              // Get controller's name
+              GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse, &ControllerDisplayName); // The child should be NULL to get the controller's name.
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse2, &ControllerDisplayName);
+                if(GOPStatus == EFI_UNSUPPORTED)
+                {
+                  GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse3, &ControllerDisplayName);
+                }
+              }
+              if(EFI_ERROR(GOPStatus))
+              {
+
+  #ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Name2Device GetControllerName error. 0x%llx\r\n", GOPStatus); // Enable this to diagnose crashes due to controller name matching.
+  #endif
+                // You know, we have specifications for a reason.
+                // Those who refuse to follow them get this.
+                ControllerDisplayName = DefaultControllerDisplayName;
+              }
+              // Got controller's name
+              Print(L"k. Got controller name\r\n");
+
+              // Get child's name
+              GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse, &ChildDisplayName);
+              if(GOPStatus == EFI_UNSUPPORTED)
+              {
+                GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse2, &ChildDisplayName);
+                if(GOPStatus == EFI_UNSUPPORTED)
+                {
+                  GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse3, &ChildDisplayName);
+                }
+              }
+              if(EFI_ERROR(GOPStatus))
+              {
+
+  #ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Name2Device GetControllerName ChildName error. 0x%llx\r\n", GOPStatus);
+  #endif
+                // You know, we have specifications for a reason.
+                // Those who refuse to follow them get this.
+                ChildDisplayName = DefaultChildDisplayName;
+              }
+
+              Print(L"l. Got names\r\n");
+              // Got child's name
+              break;
+
+            } // End for Name2DriverIndex
+            break;
+          } // End if match controller to GraphicsHandle's device path
+        } // End for CntlrIndex
+      } // End not shortening path method
+*/
+      Print(L"%c. 0x%llx - %s: %s: %s\r\n", DevNum + 0x30, GraphicsHandles[DevNum], ControllerDisplayName, DriverDisplayName, ChildDisplayName);
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
       Keywait(L"\0");
 #endif
-      if(GOPStatus == EFI_SUCCESS)
-      {
-        // Found the name and it has been assigned. No need to keep looking.
-        break;
-      }
-      // Did not find a name for some reason
-      else if((k == Name2HandlesInHandleBuffer2 - 1) && (GOPStatus != EFI_SUCCESS))
-      {
-        // You know, we have specifications for a reason.
-        // Those who refuse to follow them get this.
-        DriverDisplayName = L"No Driver Name";
-        ControllerDisplayName = L"No Controller Name";
-      }
-    }
-    Print(L"%c. 0x%llx - %s: %s\r\n", DevNum + 0x30, GraphicsHandles[DevNum], DriverDisplayName, ControllerDisplayName);
-  }
-  Print(L"\r\n");
 
-  // Done with this massive array
+    }
+    else if(GOPStatus == EFI_UNSUPPORTED) // Need to do this because VMs can throw curveballs sometimes, like Hyper-V with RemoteFX on an NVidia Optimus laptop. Yep.
+    {
+      Print(L"%c. 0x%llx - Weird extra device (is this in a VM?).\r\n", DevNum + 0x30, GraphicsHandles[DevNum]);
+    }
+    else if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"GraphicsHandles DevicePath_Graphics OpenProtocol error. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+    Keywait(L"\0");
+#endif
+
+  } // End for(GraphicsHandles[DevNum]...)
+
+
+  // Done with this massive array of DevPathHandles
+  GOPStatus = BS->FreePool(DevPathHandles);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"DevPathHandles FreePool error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+
+  // Done with this massive array of DriverHandles
+  GOPStatus = BS->FreePool(DriverHandles);
+  if(EFI_ERROR(GOPStatus))
+  {
+    Print(L"DriverHandles FreePool error. 0x%llx\r\n", GOPStatus);
+    return GOPStatus;
+  }
+
+  // Done with this massive array of Name2Handles
   GOPStatus = BS->FreePool(Name2Handles);
   if(EFI_ERROR(GOPStatus))
   {
     Print(L"Name2Handles FreePool error. 0x%llx\r\n", GOPStatus);
     return GOPStatus;
   }
-*/
+
+  Print(L"\r\n");
+
+//-->
 
   for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
   {
@@ -269,7 +661,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-    GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GPUArray AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -287,14 +679,14 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
       EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
       // Reserve memory for graphics output structure
-
+/*
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GOPTable AllocatePool error. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
-
+*/
     /*
       // These are all the same
       Print(L"sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL): %llu\r\n", sizeof(struct _EFI_GRAPHICS_OUTPUT_PROTOCOL));
@@ -302,7 +694,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"sizeof(*GOPTable): %llu\r\n", sizeof(*GOPTable));
       Print(L"sizeof(GOPTable[0]): %llu\r\n", sizeof(GOPTable[0]));
     */
-
+/*
       // Reserve memory for graphics output mode to preserve it
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
@@ -311,7 +703,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         return GOPStatus;
       }
       // Mode->Info gets reserved once SizeOfInfo is determined (via QueryMode()).
-
+*/
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
@@ -453,7 +845,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-/*
+
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
 
@@ -464,7 +856,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         Keywait(L"\0");
       }
-
+/*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
       {
@@ -487,7 +879,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = 1;
-    GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GPUArray AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -518,7 +910,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
     // Reserve memory for graphics output structure
-
+/*
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
     if(EFI_ERROR(GOPStatus))
     {
@@ -534,7 +926,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       return GOPStatus;
     }
     // Mode->Info gets reserved once SizeOfInfo is determined.
-
+*/
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
@@ -677,7 +1069,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-/*
+
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
 
@@ -688,7 +1080,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
       Keywait(L"\0");
     }
-
+/*
     GOPStatus = BS->FreePool(GOPTable->Mode);
     if(EFI_ERROR(GOPStatus))
     {
@@ -711,7 +1103,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-    GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GPUArray AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -729,7 +1121,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
       EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
       // Reserve memory for graphics output structure
-
+/*
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
       if(EFI_ERROR(GOPStatus))
       {
@@ -745,7 +1137,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         return GOPStatus;
       }
       // Mode->Info gets reserved once SizeOfInfo is determined.
-
+*/
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
@@ -825,7 +1217,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-/*
+
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
 
@@ -836,7 +1228,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         Keywait(L"\0");
       }
-
+/*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
       {
@@ -861,7 +1253,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = NumHandlesInHandleBuffer;
-    GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GPUArray AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -879,7 +1271,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
       EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
       // Reserve memory for graphics output structure
-
+/*
       GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
       if(EFI_ERROR(GOPStatus))
       {
@@ -895,7 +1287,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         return GOPStatus;
       }
       // Mode->Info gets reserved once SizeOfInfo is determined.
-
+*/
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
@@ -1001,7 +1393,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-/*
+
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
 
@@ -1012,7 +1404,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         Keywait(L"\0");
       }
-
+/*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
       {
@@ -1036,7 +1428,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     // Setup
     Graphics->NumberOfFrameBuffers = 1;
-    GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, Graphics->NumberOfFrameBuffers*sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE), (void**)&Graphics->GPUArray);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GPUArray AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -1055,7 +1447,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
     EFI_GRAPHICS_OUTPUT_PROTOCOL *GOPTable;
     // Reserve memory for graphics output structure
-
+/*
     GOPStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_GRAPHICS_OUTPUT_PROTOCOL), (void**)&GOPTable); // All EfiBootServicesData get freed on ExitBootServices()
     if(EFI_ERROR(GOPStatus))
     {
@@ -1071,7 +1463,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       return GOPStatus;
     }
     // Mode->Info gets reserved once SizeOfInfo is determined.
-
+*/
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
@@ -1213,7 +1605,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-/*
+
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
 
@@ -1224,7 +1616,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
       Keywait(L"\0");
     }
-
+/*
     GOPStatus = BS->FreePool(GOPTable->Mode);
     if(EFI_ERROR(GOPStatus))
     {
@@ -1371,3 +1763,251 @@ typedef union {
 } EFI_GRAPHICS_OUTPUT_BLT_PIXEL_UNION;
 
 */
+
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+
+// Want more GUIDs or see some you can't identify?
+// Try here: https://github.com/tianocore/edk2/blob/master/MdePkg/MdePkg.dec
+// And check out this insane list: https://github.com/snare/ida-efiutils
+// If you're using a VM, you might get some unlisted ones that aren't in any public list.
+
+STATIC struct {
+    EFI_GUID        *Guid;
+    WCHAR           *GuidName;
+} KnownGuids[] = {
+	{  &NullGuid,                                       L"G0" },
+	{  &gEfiGlobalVariableGuid,                         L"EfiVar" },
+
+  {  &gEfiFirmwareVolume2ProtocolGuid,                L"FrmVol2" },
+  {  &gEfiFirmwareVolumeBlockProtocolGuid,            L"FrmVolBlk" },
+
+	{  &VariableStoreProtocol,                          L"VarStore" },
+	{  &gEfiDevicePathProtocolGuid,                     L"DevPath" },
+	{  &gEfiLoadedImageProtocolGuid,                    L"LdImg" },
+	{  &gEfiSimpleTextInProtocolGuid,                   L"TxtIn" },
+	{  &gEfiSimpleTextOutProtocolGuid,                  L"TxtOut" },
+	{  &gEfiBlockIoProtocolGuid,                        L"BlkIo" },
+	{  &gEfiBlockIo2ProtocolGuid,                       L"BlkIo2" },
+	{  &gEfiDiskIoProtocolGuid,                         L"DskIo" },
+	{  &gEfiDiskIo2ProtocolGuid,                        L"DskIo2" },
+	{  &gEfiSimpleFileSystemProtocolGuid,               L"SimpFs" },
+	{  &gEfiLoadFileProtocolGuid,                       L"LdFile" },
+  {  &gEfiLoadFile2ProtocolGuid,                      L"LdFile2" },
+	{  &gEfiDeviceIoProtocolGuid,                       L"DevIo" },
+	{  &gEfiComponentNameProtocolGuid,                  L"CName" },
+	{  &gEfiComponentName2ProtocolGuid,                 L"CName2" },
+
+  {  &gEfiDriverBindingProtocolGuid,                  L"DrvBind" },
+  {  &gEfiPciIoProtocolGuid,                          L"PciIo" },
+  {  &gEfiPciRootBridgeIoProtocolGuid,                L"PciRtBrdgeIo" },
+  {  &gEfiGraphicsOutputProtocolGuid,                 L"GOP" },
+  {  &gEfiDevicePathToTextProtocolGuid,               L"DevPathToTxt" },
+  {  &gEfiDevicePathFromTextProtocolGuid,             L"DevPathFromTxt" },
+  {  &gEfiLoadedImageDevicePathProtocolGuid,          L"LdImgDevPath" },
+
+	{  &gEfiFileInfoGuid,                               L"FileInfo" },
+	{  &gEfiFileSystemInfoGuid,                         L"FsInfo" },
+	{  &gEfiFileSystemVolumeLabelInfoIdGuid,            L"FsVolInfo" },
+
+	{  &gEfiUnicodeCollationProtocolGuid,               L"Unicode" },
+	{  &LegacyBootProtocol,                             L"LegacyBoot" },
+	{  &gEfiSerialIoProtocolGuid,                       L"SerIo" },
+	{  &VgaClassProtocol,                               L"VgaClass"},
+	{  &gEfiSimpleNetworkProtocolGuid,                  L"Net" },
+	{  &gEfiNetworkInterfaceIdentifierProtocolGuid,     L"Nii" },
+  {  &gEfiNetworkInterfaceIdentifierProtocolGuid_31,  L"Nii31" },
+	{  &gEfiPxeBaseCodeProtocolGuid,                    L"Pxe" },
+	{  &gEfiPxeBaseCodeCallbackProtocolGuid,            L"PxeCb" },
+
+	{  &TextOutSpliterProtocol,                         L"TxtOutSplit" },
+	{  &ErrorOutSpliterProtocol,                        L"ErrOutSplit" },
+	{  &TextInSpliterProtocol,                          L"TxtInSplit" },
+	{  &gEfiPcAnsiGuid,                                 L"PcAnsi" },
+	{  &gEfiVT100Guid,                                  L"Vt100" },
+	{  &gEfiVT100PlusGuid,                              L"Vt100Plus" },
+	{  &gEfiVTUTF8Guid,                                 L"VtUtf8" },
+	{  &UnknownDevice,                                  L"UnknownDev" },
+
+  {  &gEfiSimpleTextInExProtocolGuid,                 L"TxtInEx" },
+  {  &gEfiConsoleInDeviceGuid,                        L"ConInDevice" },
+  {  &gEfiConsoleOutDeviceGuid,                       L"ConOutDevice" },
+  {  &gEfiStandardErrorDeviceGuid,                    L"StdErrDevice" },
+  {  &gEfiUgaDrawProtocolGuid,                        L"UGADraw" },
+
+  {  &gEfiConsoleInDevicesStartedGuid,                L"ConInDevStrt" },
+  {  &gEfiConsoleOutDevicesStartedGuid,               L"ConOutDevStrt" },
+
+  {  &gEfiEdidDiscoveredProtocolGuid,                 L"EdidDiscovered" },
+  {  &gEfiEdidActiveProtocolGuid,                     L"EdidActive" },
+  {  &gEfiEdidOverrideProtocolGuid,                   L"EdidOverride" },
+
+  {  &SimplePointerProtocol,                          L"SimpPtr" },
+  {  &AbsolutePointerProtocol,                        L"AbsPtr" },
+
+  {  &gEfiDriverSupportedEfiVersionProtocolGuid,      L"DrvSupEfiVer" },
+  {  &gEfiDriverDiagnosticsProtocolGuid,              L"DrvDiag" },
+  {  &gEfiDriverDiagnostics2ProtocolGuid,             L"DrvDiag2" },
+  {  &gEfiDriverConfigurationProtocolGuid,            L"DrvConfig" },
+
+	{  &EfiPartTypeSystemPartitionGuid,                 L"ESP" },
+	{  &EfiPartTypeLegacyMbrGuid,                       L"GPT MBR" },
+
+  {  &gEfiUsbPolicyProtocolGuid,                      L"UsbPol" },
+  {  &gEfiUsbTimingPolicyProtocolGuid,                L"UsbTimPol" },
+  {  &gEfiUsbIoProtocolGuid,                          L"UsbIo" },
+  {  &gEfiUsb2HcProtocolGuid,                         L"Usb2Hc" },
+  {  &gEfiUsbHcProtocolGuid,                          L"UsbHc" },
+
+  {  &gEfiDataHubProtocolGuid,                        L"DataHub" },
+  {  &gEfiPlatformIDEProtocolGuid,                    L"PlatformIDE" },
+  {  &gEfiDiskInfoProtocolGuid,                       L"DiskInfo" },
+  {  &gEfiScsiIoProtocolGuid,                         L"ScsiIo" },
+  {  &gEfiExtScsiPassThruProtocolGuid,                L"ExtScsiPassThru" },
+  {  &gEfiSioProtocolGuid,                            L"Sio"  },
+  {  &gEfiIdeControllerInitProtocolGuid,              L"IdeCntlrInit" },
+  {  &gEfiStorageSecurityCommandProtocolGuid,         L"StorSecurityCmd" },
+  {  &gEfiHiiConfigAccessProtocolGuid,                L"HiiCfgAccess" },
+
+  {  &gIntelGopGuid,                                  L"IntlGop" },
+
+  {  &gAmiEfikeycodeProtocolGuid,                     L"AmiEfikeycode" },
+  {  &gHotPlugDeviceGuid,                             L"HotPlugDev" },
+
+  {  &gHddUnlockedGuid,                               L"HddUnlck" },
+  {  &gHddSecurityEndProtocolGuid,                    L"HddSecurityEnd" },
+  {  &gAhciBusInitProtocolGuid,                       L"AhciBusInit" },
+  {  &gPchSataControllerDriverGuid,                   L"PchSataCntlrDrv" },
+
+  {  &gEfiPlatformDriverOverrideProtocolGuid,         L"PltfrmDrvOvrride" },
+  {  &gEfiBusSpecificDriverOverrideProtocolGuid,      L"BusDrvOvrride" },
+  {  &gEfiDriverFamilyOverrideProtocolGuid,           L"DrvFamOvrride" },
+
+	{  NULL, L"" }
+};
+// I've seen a rogue EFI_GUID that I can't find what it's for: 39487C79-236D-4666-87E5-09547CAAE1BC. It seems exclusive to Intel HD graphics family GOP handles.
+// In "GUID Format" it's this: {0x39487c79, 0x236d, 0x4666, {0x87, 0xe5, 0x09, 0x54, 0x7c, 0xaa, 0xe1, 0xbc}}
+
+EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray)
+{
+  UINTN NumInHandle = 0;
+  EFI_GUID ** ProtocolGUIDList;
+
+  EFI_STATUS GOPStatus = EFI_SUCCESS;
+
+  CHAR8 LanguageToUse[6] = {'e','n','-','U','S','\0'};
+  CHAR8 LanguageToUse2[3] = {'e','n','\0'};
+  CHAR8 LanguageToUse3[4] = {'e','n','g','\0'};
+
+  CHAR16 DefaultDriverDisplayName[15] = L"No Driver Name";
+
+  CHAR16 * DriverDisplayName = DefaultDriverDisplayName;
+
+  for(UINT64 j = 0; j < NumHandlesInHandleArray; j++)
+  {
+    Print(L"Handle %llu: 0x%llx\r\n", j, HandleArray[j]);
+    if(HandleArray[j] == NULL)
+    {
+      Print(L"Null Handle\r\n");
+      continue;
+    }
+
+    GOPStatus = BS->ProtocolsPerHandle(HandleArray[j], &ProtocolGUIDList, &NumInHandle);
+    if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"ProtocolsPerHandle error. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
+
+    for(UINT64 q = 0; q < NumInHandle; q++)
+    {
+      Print(L"%08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x: ",
+          ProtocolGUIDList[q]->Data1,
+          ProtocolGUIDList[q]->Data2,
+          ProtocolGUIDList[q]->Data3,
+          ProtocolGUIDList[q]->Data4[0],
+          ProtocolGUIDList[q]->Data4[1],
+          ProtocolGUIDList[q]->Data4[2],
+          ProtocolGUIDList[q]->Data4[3],
+          ProtocolGUIDList[q]->Data4[4],
+          ProtocolGUIDList[q]->Data4[5],
+          ProtocolGUIDList[q]->Data4[6],
+          ProtocolGUIDList[q]->Data4[7]
+          );
+
+      for (UINTN Index=0; KnownGuids[Index].Guid; Index++)
+      {
+        if (CompareGuid(ProtocolGUIDList[q], KnownGuids[Index].Guid) == 0)
+        {
+          Print(L"%s", KnownGuids[Index].GuidName);
+        }
+      }
+      Print(L"\r\n");
+
+      if (CompareGuid(ProtocolGUIDList[q], &gEfiComponentName2ProtocolGuid) == 0) // Display the name. At least we'll have something legible.
+      {
+        EFI_COMPONENT_NAME2_PROTOCOL *Name2Device;
+
+        GOPStatus = BS->OpenProtocol(HandleArray[j], &ComponentName2Protocol, (void**)&Name2Device, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+        if(EFI_ERROR(GOPStatus))
+        {
+          Print(L"Name2Device OpenProtocol error. 0x%llx\r\n", GOPStatus);
+          return GOPStatus;
+        }
+
+        GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse, &DriverDisplayName);
+        if(GOPStatus == EFI_UNSUPPORTED)
+        {
+          GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse2, &DriverDisplayName);
+          if(GOPStatus == EFI_UNSUPPORTED)
+          {
+            GOPStatus = Name2Device->GetDriverName(Name2Device, LanguageToUse3, &DriverDisplayName);
+          }
+        }
+        if(EFI_ERROR(GOPStatus))
+        {
+          Print(L"Name2Device GetDriverName error. 0x%llx\r\n", GOPStatus);
+
+          if(GOPStatus == EFI_UNSUPPORTED)
+          {
+            // This is the format of the language, since it isn't "en-US" or "en"
+            // It will need to be implemented like the above arrays
+            Print(L"First 10 language characters look like this:\r\n");
+            for(UINT32 p = 0; p < 10; p++)
+            {
+              Print(L"%c", Name2Device->SupportedLanguages[p]);
+            }
+            Print(L"\r\n");
+
+            Keywait(L"\0");
+          }
+          // You know, we have specifications for a reason.
+          // Those who refuse to follow them get this.
+          DriverDisplayName = DefaultDriverDisplayName;
+        }
+        Print(L"%s\r\n", DriverDisplayName);
+      }
+
+    }
+
+    if(((j+1) % 2) == 0) // Show 2 handles at a time before prompt
+    {
+      Keywait(L"\0");
+    }
+  }
+  Print(L"Done\r\n");
+  Keywait(L"\0");
+
+  if(ProtocolGUIDList)
+  {
+    GOPStatus = BS->FreePool(ProtocolGUIDList);
+    if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"ProtocolsPerHandle FreePool error. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
+  }
+
+  return GOPStatus;
+}
+#endif
