@@ -15,6 +15,7 @@
 
 #include "Bootloader.h"
 #define GOP_NAMING_DEBUG_ENABLED
+// TODO: test release mode
 
 #ifdef GOP_NAMING_DEBUG_ENABLED
 EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray);
@@ -98,7 +99,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
   Key.UnicodeChar = 0;
 
-//-->
   // Vendors go all over the place with these...
   CHAR8 LanguageToUse[6] = {'e','n','-','U','S','\0'};
   CHAR8 LanguageToUse2[3] = {'e','n','\0'};
@@ -111,7 +111,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   CHAR16 * DriverDisplayName = DefaultDriverDisplayName;
   CHAR16 * ControllerDisplayName = DefaultControllerDisplayName;
   CHAR16 * ChildDisplayName = DefaultChildDisplayName;
-//-->
 
   // We can pick which graphics output device we want (handy for multi-GPU setups)...
   EFI_HANDLE *GraphicsHandles; // Array of discovered graphics handles that support the Graphics Output Protocol
@@ -132,7 +131,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Print(L"There are %llu UEFI graphics devices:\r\n", NumHandlesInHandleBuffer);
   }
 
-//-->
   // List all GPUs
 
   // Get all NAME2-supporting handles
@@ -167,16 +165,12 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   Print(L"Number of Name2Handles: %llu\r\n", NumName2Handles);
   Print(L"Number of DriverHandles: %llu\r\n", NumDriverHandles);
   Print(L"Number of DevPathHandles: %llu\r\n", NumDevPathHandles);
-#endif
 
-//DEBUG
-#ifdef GOP_NAMING_DEBUG_ENABLED
 //  WhatProtocols(GraphicsHandles, NumHandlesInHandleBuffer);
 //  WhatProtocols(Name2Handles, NumName2Handles);
 //  WhatProtocols(DriverHandles, NumDriverHandles);
 //  WhatProtocols(DevPathHandles, NumDevPathHandles);
 #endif
-//DEBUG
 
   for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
   {
@@ -190,9 +184,13 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     if(GOPStatus == EFI_SUCCESS)
     {
       UINTN CntlrPathSize = DevicePathSize(DevicePath_Graphics) - DevicePathNodeLength(DevicePath_Graphics) + 4; // Add 4 bytes to account for the end node
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
 //      Print(L"DevPathStructBytes: 0x%x, PathBytes: 0x%016llx%016llx%016llx\r\n", *(DevicePath_Graphics), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 20), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 12), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 4)); // DevicePath struct is 4 bytes
       Print(L"a. DevPathGraphics: %s, CntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_Graphics), CntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
       Keywait(L"\0");
+#endif
+
       // Find the controller that corresponds to the GraphicsHandle's device path
 
       EFI_DEVICE_PATH *DevicePath_DevPath;
@@ -202,7 +200,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       {
         // Per https://github.com/tianocore/edk2/blob/master/ShellPkg/Library/UefiShellDriver1CommandsLib/DevTree.c
         // Controllers don't have DriverBinding or LoadedImage
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
         Print(L"b. CntlrIndex: %llu\r\n", CntlrIndex);
+#endif
 
         GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DriverBindingProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
         if (!EFI_ERROR (GOPStatus))
@@ -216,15 +217,18 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
           continue;
         }
 
-        // TODO: Maybe we don't need this filter anymore
-        // The controllers we want also don't have SimpFs, which seems to cause crashes if we don't skip them. Apparently if a FAT32 controller handle is paired with an NTFS driver, the system locks up.
+        // The controllers we want don't have SimpFs, which seems to cause crashes if we don't skip them. Apparently if a FAT32 controller handle is paired with an NTFS driver, the system locks up.
+        // This would only be a problem with the current method if the graphics output device also happened to be a user-writable storage device. I don't know how the UEFI GOP of a Radeon SSG is set up, and that's the only edge case I can think of.
+        // If the SSD were writable, it would probably have a separate controller on a similar path to the GOP device, and better to just reject SimpFS tobe safe.
         GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &FileSystemProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
         if (!EFI_ERROR (GOPStatus))
         {
           continue;
         }
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
         Print(L"c. Filtered CntlrIndex: %llu\r\n", CntlrIndex);
+#endif
 
         // Get controller's device path
         GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DevicePathProtocol, (void**)&DevicePath_DevPath, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
@@ -238,8 +242,11 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         // This will fail on certain kinds of systems, like Hyper-V VMs. This method is made with PCI-Express graphics devices in mind.
         UINTN ThisCntlrPathSize = DevicePathSize(DevicePath_DevPath);
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
         Print(L"d. DevPathDevPath: %s, ThisCntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_DevPath), ThisCntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
         Keywait(L"\0");
+#endif
+
         if(ThisCntlrPathSize != CntlrPathSize)
         { // Might be something like PciRoot(0), which would match DevPath_Graphics for a PCI-E GPU without this check
           continue;
@@ -249,12 +256,17 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         {
           // Found it. The desired controller is DevPathHandles[CntlrIndex]
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
           Print(L"e. Above DevPathDevPath matched DevPathGraphics %llu, CntlrIndex: %llu\r\n", DevNum, CntlrIndex);
+#endif
 
           // Now match controller to its Name2-supporting driver
           for(UINT64 Name2DriverIndex = 0; Name2DriverIndex < NumName2Handles; Name2DriverIndex++)
           {
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
             Print(L"f. Name2DriverIndex: %llu\r\n", Name2DriverIndex);
+#endif
 
             // Check if Name2Handles[Name2DriverIndex] manages the DevPathHandles[CntlrIndex] controller
             // See EfiTestManagedDevice at
@@ -282,7 +294,9 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
             }
             // Yes, found it! Get names.
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
             Print(L"i. Success! CntlrIndex %llu, Name2DriverIndex: %llu, DevNum: %llu\r\n", CntlrIndex, Name2DriverIndex, DevNum);
+#endif
 
             EFI_COMPONENT_NAME2_PROTOCOL *Name2Device;
 
@@ -329,7 +343,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               DriverDisplayName = DefaultDriverDisplayName;
             }
             // Got driver's name
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
             Print(L"j. Got driver name\r\n");
+#endif
 
             // Get controller's name
             GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse, &ControllerDisplayName); // The child should be NULL to get the controller's name.
@@ -352,7 +369,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               ControllerDisplayName = DefaultControllerDisplayName;
             }
             // Got controller's name
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
             Print(L"k. Got controller name\r\n");
+#endif
 
             // Get child's name
             GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse, &ChildDisplayName);
@@ -375,7 +395,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               ChildDisplayName = DefaultChildDisplayName;
             }
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
             Print(L"l. Got names\r\n");
+#endif
+
             // Got child's name
             break;
 
@@ -384,69 +407,105 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         } // End if match controller to GraphicsHandle's device path
       } // End for CntlrIndex
 
+      // It's possible that a device is missing a child name, but has the controller and device names. The triple if() statement below covers this.
 
-      // After all that, if still no name, it's probably a VM or something weird that doesn't implement ACPI ADR.
-      // Let's try not shortening the device path:
-/*
+      // After all that, if still no name, it's probably a VM or something weird that doesn't implement ACPI ADR or PCIe.
+      // This means there probably aren't devices like the PCIe root bridge to mess with device path matching.
+      // So use a more generic method that's cognizant of this and doesn't enforce device path sizes.
+
       if((ControllerDisplayName == DefaultControllerDisplayName) && (DriverDisplayName == DefaultDriverDisplayName) && (ChildDisplayName == DefaultChildDisplayName))
       {
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
         Print(L"\r\nFunky graphics device here.\r\n");
-        CntlrPathSize = DevicePathSize(DevicePath_Graphics);
 
   //      Print(L"DevPathStructBytes: 0x%x, PathBytes: 0x%016llx%016llx%016llx\r\n", *(DevicePath_Graphics), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 20), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 12), *(EFI_PHYSICAL_ADDRESS *)((CHAR8*)DevicePath_Graphics + 4)); // DevicePath struct is 4 bytes
-        Print(L"a. DevPathGraphics: %s, CntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_Graphics), CntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+        Print(L"af. DevPathGraphics: %s\r\n", DevicePathToStr(DevicePath_Graphics)); // FYI: This allocates pool for the string //TODO: remove this line
         Keywait(L"\0");
+#endif
         // Find the controller that corresponds to the GraphicsHandle's device path
 
-//        EFI_DEVICE_PATH *DevicePath_DevPath;
-//        UINT64 CntlrIndex = 0;
+        // These have already been defined.
+        // EFI_DEVICE_PATH *DevicePath_DevPath;
+        // UINT64 CntlrIndex = 0;
 
         for(CntlrIndex = 0; CntlrIndex < NumDevPathHandles; CntlrIndex++)
         {
           // Per https://github.com/tianocore/edk2/blob/master/ShellPkg/Library/UefiShellDriver1CommandsLib/DevTree.c
           // Controllers don't have DriverBinding or LoadedImage
-          Print(L"b. CntlrIndex: %llu\r\n", CntlrIndex);
 
-          // All bets are off for funky devices
+#ifdef GOP_NAMING_DEBUG_ENABLED
+          Print(L"bf. CntlrIndex: %llu\r\n", CntlrIndex);
+#endif
 
-          Print(L"c. Filtered CntlrIndex: %llu\r\n", CntlrIndex);
+          GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DriverBindingProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+          if (!EFI_ERROR (GOPStatus))
+          {
+            continue;
+          }
 
+          GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &LoadedImageProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+          if (!EFI_ERROR (GOPStatus))
+          {
+            continue;
+          }
+
+          // The controllers we want shouldn't have SimpFs, which seems to cause crashes if we don't skip them. Apparently if a FAT32 controller handle is paired with an NTFS driver, the system locks up.
+          // This would only be a problem with the current method if the graphics output device also happened to be a user-writable storage device. I don't know how the UEFI GOP of a Radeon SSG is set up, and that's the only edge case I can think of.
+          // If the SSD were writable, it would probably have a separate controller on a similar path to the GOP device, and better to just reject SimpFS tobe safe.
+          // However, if this is in a VM, all bets are off and it's better to be safe than sorry.
+          GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &FileSystemProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+          if (!EFI_ERROR (GOPStatus))
+          {
+            continue;
+          }
+
+          // This is to filter out that ridiculous AMI PS/2 driver. Not a problem on PCIe busses, but definitely could be a problem here.
+          GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &SioProtocol, NULL, NULL, NULL, EFI_OPEN_PROTOCOL_TEST_PROTOCOL);
+          if (!EFI_ERROR (GOPStatus))
+          {
+            continue;
+          }
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+          Print(L"cf. Filtered CntlrIndex: %llu\r\n", CntlrIndex);
+#endif
           // Get controller's device path
           GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &DevicePathProtocol, (void**)&DevicePath_DevPath, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
           if(EFI_ERROR(GOPStatus))
           {
-            Print(L"DevPathHandles OpenProtocol error. 0x%llx\r\n", GOPStatus);
+            Print(L"Funky DevPathHandles OpenProtocol error. 0x%llx\r\n", GOPStatus);
             return GOPStatus;
           }
 
           // Match device paths; DevPath is a Multi, Graphics is a Single
-          // This will fail on certain kinds of systems, like Hyper-V VMs. This method is made with PCI-Express graphics devices in mind.
-          UINTN ThisCntlrPathSize = DevicePathSize(DevicePath_DevPath);
-
-          Print(L"d. DevPathDevPath: %s, ThisCntlrPathSize: %llu\r\n", DevicePathToStr(DevicePath_DevPath), ThisCntlrPathSize); // FYI: This allocates pool for the string //TODO: remove this line
+          // DevPath could be as generic as VMBus or something, which is fine for this case since it's not PCIe.
+#ifdef GOP_NAMING_DEBUG_ENABLED
+          Print(L"df. DevPathDevPath: %s\r\n", DevicePathToStr(DevicePath_DevPath)); // FYI: This allocates pool for the string //TODO: remove this line
           Keywait(L"\0");
-          if(ThisCntlrPathSize != CntlrPathSize)
-          { // Might be something like PciRoot(0), which would match DevPath_Graphics for a PCI-E GPU without this check
-            continue;
-          }
-
+#endif
           if(LibMatchDevicePaths(DevicePath_DevPath, DevicePath_Graphics))
           {
-            // Found it. The desired controller is DevPathHandles[CntlrIndex]
+            // Found something on controller DevPathHandles[CntlrIndex]
 
-            Print(L"e. Above DevPathDevPath matched DevPathGraphics %llu, CntlrIndex: %llu\r\n", DevNum, CntlrIndex);
-
+#ifdef GOP_NAMING_DEBUG_ENABLED
+            Print(L"ef. Above DevPathDevPath matched DevPathGraphics %llu, CntlrIndex: %llu\r\n", DevNum, CntlrIndex);
+#endif
             // Now match controller to its Name2-supporting driver
             for(UINT64 Name2DriverIndex = 0; Name2DriverIndex < NumName2Handles; Name2DriverIndex++)
             {
-              Print(L"f. Name2DriverIndex: %llu\r\n", Name2DriverIndex);
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"ff. Name2DriverIndex: %llu\r\n", Name2DriverIndex);
+#endif
               // Check if Name2Handles[Name2DriverIndex] manages the DevPathHandles[CntlrIndex] controller
               // See EfiTestManagedDevice at
               // https://github.com/tianocore-docs/edk2-UefiDriverWritersGuide/blob/master/11_uefi_driver_and_controller_names/113_getcontrollername_implementations/1132_bus_drivers_and_hybrid_drivers.md
               // and the implementation at https://github.com/tianocore/edk2/blob/master/MdePkg/Library/UefiLib/UefiLib.c
-              WhatProtocols(DevPathHandles[CntlrIndex], 1);
 
+// Hyper-V has a guid of 63d25797-59eb-4125-a34e-b2b4a8e1587e that might be its VMBus equivalent of PciIoProtocol, but that's probably not standard enough a GUID to be able to enforce this filter.
+// This is meant to be generic.
+/*
               VOID * ManagedInterface; // Need a throwaway pointer for OpenProtocol BY_DRIVER
 
               GOPStatus = BS->OpenProtocol(DevPathHandles[CntlrIndex], &PciIoProtocol, &ManagedInterface, Name2Handles[Name2DriverIndex], DevPathHandles[CntlrIndex], EFI_OPEN_PROTOCOL_BY_DRIVER);
@@ -468,15 +527,17 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               }
               // Yes, found it! Get names.
 
-              Print(L"i. Success! CntlrIndex %llu, Name2DriverIndex: %llu, DevNum: %llu\r\n", CntlrIndex, Name2DriverIndex, DevNum);
-
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"if. Success! CntlrIndex %llu, Name2DriverIndex: %llu, DevNum: %llu\r\n", CntlrIndex, Name2DriverIndex, DevNum);
+#endif
+*/
               EFI_COMPONENT_NAME2_PROTOCOL *Name2Device;
 
               // Open Name2 Protocol
               GOPStatus = BS->OpenProtocol(Name2Handles[Name2DriverIndex], &ComponentName2Protocol, (void**)&Name2Device, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
               if(EFI_ERROR(GOPStatus))
               {
-                Print(L"Name2Device OpenProtocol error. 0x%llx\r\n", GOPStatus);
+                Print(L"Funky Name2Device OpenProtocol error. 0x%llx\r\n", GOPStatus);
                 return GOPStatus;
               }
 
@@ -493,8 +554,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               if(EFI_ERROR(GOPStatus))
               {
 
-  #ifdef GOP_NAMING_DEBUG_ENABLED
-                Print(L"Name2Device GetDriverName error. 0x%llx\r\n", GOPStatus);
+#ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Funky Name2Device GetDriverName error. 0x%llx\r\n", GOPStatus);
 
                 if(GOPStatus == EFI_UNSUPPORTED)
                 {
@@ -509,14 +570,16 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
                   Keywait(L"\0");
                 }
-  #endif
+#endif
                 // You know, we have specifications for a reason.
                 // Those who refuse to follow them get this.
                 DriverDisplayName = DefaultDriverDisplayName;
               }
               // Got driver's name
-              Print(L"j. Got driver name\r\n");
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"jf. Got driver name\r\n");
+#endif
               // Get controller's name
               GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], NULL, LanguageToUse, &ControllerDisplayName); // The child should be NULL to get the controller's name.
               if(GOPStatus == EFI_UNSUPPORTED)
@@ -530,16 +593,18 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               if(EFI_ERROR(GOPStatus))
               {
 
-  #ifdef GOP_NAMING_DEBUG_ENABLED
-                Print(L"Name2Device GetControllerName error. 0x%llx\r\n", GOPStatus); // Enable this to diagnose crashes due to controller name matching.
-  #endif
+#ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Funky Name2Device GetControllerName error. 0x%llx\r\n", GOPStatus); // Enable this to diagnose crashes due to controller name matching.
+#endif
                 // You know, we have specifications for a reason.
                 // Those who refuse to follow them get this.
                 ControllerDisplayName = DefaultControllerDisplayName;
               }
               // Got controller's name
-              Print(L"k. Got controller name\r\n");
 
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"kf. Got controller name\r\n");
+#endif
               // Get child's name
               GOPStatus = Name2Device->GetControllerName(Name2Device, DevPathHandles[CntlrIndex], GraphicsHandles[DevNum], LanguageToUse, &ChildDisplayName);
               if(GOPStatus == EFI_UNSUPPORTED)
@@ -553,24 +618,40 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
               if(EFI_ERROR(GOPStatus))
               {
 
-  #ifdef GOP_NAMING_DEBUG_ENABLED
-                Print(L"Name2Device GetControllerName ChildName error. 0x%llx\r\n", GOPStatus);
-  #endif
+#ifdef GOP_NAMING_DEBUG_ENABLED
+                Print(L"Funky Name2Device GetControllerName ChildName error. 0x%llx\r\n", GOPStatus);
+#endif
                 // You know, we have specifications for a reason.
                 // Those who refuse to follow them get this.
                 ChildDisplayName = DefaultChildDisplayName;
               }
 
-              Print(L"l. Got names\r\n");
+#ifdef GOP_NAMING_DEBUG_ENABLED
+              Print(L"lf. Got names\r\n");
+              Print(L"%s: %s: %s\r\n", ControllerDisplayName, DriverDisplayName, ChildDisplayName);
+              Keywait(L"\0");
+#endif
               // Got child's name
-              break;
+              // Hopefully this wasn't another case of the "PS/2 driver that tries to claim that all handles are its children" :P
+              // There's no way to check without explicitly blacklisting by driver name or filtering by protocol (as was done above).
+              // I think Hyper-V's video driver does something similar, though it reports Hyper-V Video Controller as the child of Hyper-V Video Controller,
+              // which, in this specific case, is actually OK. Would've nice if they'd implemented a proper ChildHandle, though.
+              if(ChildDisplayName != DefaultChildDisplayName)
+              {
+                break;
+              }
+              // Nope, try another Name2 driver
 
             } // End for Name2DriverIndex
-            break;
+            if(ChildDisplayName != DefaultChildDisplayName)
+            {
+              break;
+            }
+            // Nope, try and see if another controller matches
           } // End if match controller to GraphicsHandle's device path
         } // End for CntlrIndex
-      } // End not shortening path method
-*/
+      } // End funky graphics types method
+
       Print(L"%c. 0x%llx - %s: %s: %s\r\n", DevNum + 0x30, GraphicsHandles[DevNum], ControllerDisplayName, DriverDisplayName, ChildDisplayName);
 
 #ifdef GOP_NAMING_DEBUG_ENABLED
@@ -603,7 +684,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     return GOPStatus;
   }
 
-  // Done with this massive array of DriverHandles
+  // Done with this massive array of DriverHandles // TODO: Need this anymore?
   GOPStatus = BS->FreePool(DriverHandles);
   if(EFI_ERROR(GOPStatus))
   {
@@ -621,14 +702,13 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
   Print(L"\r\n");
 
-//-->
-
+/* // Old way, no GPU names
   for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
   {
     Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
   }
   Print(L"\r\n");
-
+*/
   // If applicable, select a GPU. Otherwise, skip all the way to single GPU configuration.
   if(NumHandlesInHandleBuffer > 1)
   {
