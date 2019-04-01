@@ -1,7 +1,7 @@
 # Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications.  
 
-**Version 1.3**
+**Version 1.4**
 
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
 
@@ -47,7 +47,7 @@ Note that each of these files already has appropriate crediting at the top, so y
 
 ## How to Build from Source  
 
-Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used.  
+Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used. I'd personally recommend using the same version as used for Simple-Kernel, as these two projects are designed to share the same compiler folder.  
 
 ***Windows:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like C:\BareMetalx64
@@ -116,6 +116,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
 
 ## Change Log
+
+V1.4 (4/1/2019) - Major updates to menu display (should work better with lower resolutions), graphics out device names now work, fixed underlying cause of the need for the "weird memory hack" (it's still useful for debugging, though it's now disabled when compiling non-debug versions). Updates from here on out will likely be to the Loader Params as needed by Simple-Kernel; this release should hopefully iron out the last of any kinks. It runs a little faster, now, too!
 
 V1.3 (2/21/2019) - Added Memory_Map_Size and Memory_Map_Descriptor_Size to loader parameters. This is to prevent having to rely on potentially inconsistent techniques (particularly in really unlucky corner cases) to get the memory map size in the kernel. Also updated GNU-EFI backend to 3.0.9, updated the README format to be easier to follow, updated the license TL;DR to be shorter and clearer (i.e. made it actually a TL;DR)--note that the license terms have not changed, only the wording in the TL;DR.
 
