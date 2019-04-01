@@ -31,16 +31,16 @@ InitializeLib (
 Routine Description:
 
     Initializes EFI library for use
-    
+
 Arguments:
 
     Firmware's EFI system table
-    
+
 Returns:
 
     None
 
---*/ 
+--*/
 {
     EFI_LOADED_IMAGE        *LoadedImage;
     EFI_STATUS              Status;
@@ -73,7 +73,7 @@ Returns:
             Status = uefi_call_wrapper(
                 BS->HandleProtocol,
                 3,
-                ImageHandle, 
+                ImageHandle,
                 &LoadedImageProtocol,
                 (VOID*)&LoadedImage
             );
@@ -94,7 +94,7 @@ Returns:
     }
 
     //
-    // 
+    //
     //
 
     if (ImageHandle && UnicodeInterface == &LibStubUnicodeInterface) {

@@ -454,7 +454,7 @@ Returns:
     POOL_PRINT          spc;
 
     spc.str    = Str;
-    spc.maxlen = StrSize / sizeof(CHAR16) - 1;
+    spc.maxlen = (StrSize / sizeof(CHAR16)) - 1; // Why is this subtracting 1?
     spc.len    = 0;
 
     _PoolCatPrint (fmt, args, &spc, _SPrint);

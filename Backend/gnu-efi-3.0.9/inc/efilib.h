@@ -227,7 +227,7 @@ extern EFI_GUID gEfiFirmwareVolumeDispatchProtocolGuid;
 extern EFI_GUID gEfiLoadFile2ProtocolGuid;
 #define LoadFile2Protocol gEfiLoadFile2ProtocolGuid
 extern EFI_GUID gEfiSioProtocolGuid;
-#define SioProtocol gEfiSioProtocolGuid;
+#define SioProtocol gEfiSioProtocolGuid
 extern EFI_GUID gEfiIdeControllerInitProtocolGuid;
 #define IdeControllerInitProtocol gEfiIdeControllerInitProtocolGuid
 extern EFI_GUID gEfiStorageSecurityCommandProtocolGuid;

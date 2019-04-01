@@ -120,7 +120,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 #ifdef MAIN_DEBUG_ENABLED
   Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\nHeader Size: %u Bytes\r\nCRC32: 0x%08x\r\nReserved: 0x%x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
 #else
-  Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
+  Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision);
 #endif
 
   Print(L"Firmware Vendor: %s\r\nFirmware Revision: 0x%08x\r\n\n", ST->FirmwareVendor, ST->FirmwareRevision);
@@ -233,6 +233,8 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 //
 // A simple pause function that waits for user input before continuing.
 // Adapted from http://wiki.osdev.org/UEFI_Bare_Bones
+//
+// Note: Does not take format modifier arguments like %s, %d, etc., only plain strings.
 //
 
 EFI_STATUS Keywait(CHAR16 *String)
