@@ -13,17 +13,15 @@ A minimal, cross-platform development environment for making your own programs, 
 
 - UEFI 2.x support
 - Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files ***(1)***
-- Reset protection for kernel file loading ***(2)***
-- Multi-GPU framebuffer support ***(3)***
+- Multi-GPU framebuffer support ***(2)***
 - ACPI support
 - The ability to get the full system memory map to do whatever you want with it
 - Fits on a floppy diskette, and some systems can actually boot it from a floppy
-- Minimal UEFI development environment tuned for Windows, Mac, and Linux included in repository ***(4)***
+- Minimal UEFI development environment tuned for Windows, Mac, and Linux included in repository ***(3)***
 
 ***(1)*** *See the Simple-Kernel repository for proper compilation options for each operating system.*  
-***(2)*** *If the system resets without cleanly clearing the memory, the bootloader will try to reuse the same memory location.*  
-***(3)*** *This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.*  
-***(4)*** *See the below "How to Build from Source" section for complete compilation instructions for each platform, and then all you need to do is put your code in "src" and "inc" in place of mine. Once compiled, your program can be run in the same way as described in "Releases" using a UEFI-supporting VM like Hyper-V or on actual hardware.*  
+***(2)*** *This typically only works with one monitor per GPU due to how most GPU firmwares are implemented.*  
+***(3)*** *See the below "How to Build from Source" section for complete compilation instructions for each platform, and then all you need to do is put your code in "src" and "inc" in place of mine. Once compiled, your program can be run in the same way as described in "Releases" using a UEFI-supporting VM like Hyper-V or on actual hardware.*  
 
 ## Target System Requirements  
 
