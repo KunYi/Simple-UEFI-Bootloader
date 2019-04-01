@@ -356,7 +356,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
         Print(L"Expected ImageBase: 0x%llx\r\n", PEHeader.OptionalHeader.ImageBase);
-
+        Keywait(L"\0");
   #ifdef MEMMAP_PRINT_ENABLED
         print_memmap();
         Keywait(L"Done printing MemMap.\r\n");
@@ -382,10 +382,19 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
 #endif
 
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef PE_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -681,11 +690,19 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef PE_LOADER_DEBUG_ENABLED
-        Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 
   #ifdef MEMMAP_PRINT_ENABLED
@@ -950,12 +967,20 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         return GoTimeStatus;
       }
 
+#ifdef DOS_LOADER_DEBUG_ENABLED
+        Print(L"DOSMem location: 0x%llx\r\n", DOSMem);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
       // Zero the allocated pages
-//      ZeroMem(&DOSMem, (pages << EFI_PAGE_SHIFT));
+      ZeroMem((VOID*)DOSMem, (pages << EFI_PAGE_SHIFT));
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
-      Print(L"DOSMem location: 0x%llx\r\n", DOSMem);
-      Keywait(L"Allocate Pages passed.\r\n");
+      Keywait(L"MemZeroed and Allocate Pages passed.\r\n");
 #endif
 
       GoTimeStatus = KernelFile->SetPosition(KernelFile, (UINT64)DOSheader.e_cparhdr*16); // Load module is right after the header
@@ -1128,8 +1153,21 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           return GoTimeStatus;
         }
 
+#ifdef ELF_LOADER_DEBUG_ENABLED
+        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -1406,7 +1444,16 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
@@ -1639,8 +1686,21 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           return GoTimeStatus;
         }
 
+#ifdef MACH_LOADER_DEBUG_ENABLED
+        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef MACH_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -1918,7 +1978,16 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef MACH_LOADER_DEBUG_ENABLED

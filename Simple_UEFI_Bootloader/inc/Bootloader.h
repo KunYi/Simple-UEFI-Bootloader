@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Main Header
 //==================================================================================================================================
 //
-// Version 1.3
+// Version 1.4
 //
 // Author:
 //  KNNSpeed
@@ -33,7 +33,7 @@
 //
 // Enable useful debugging prints and convenient key-awaiting pauses
 //
-//NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
+// NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
 // left to right while the byte order is reversed (right to left)!!
 //
 // Debug binary has this uncommented, release has it commented
@@ -47,7 +47,7 @@
     #define DISABLE_UEFI_WATCHDOG_TIMER
     #define MAIN_DEBUG_ENABLED
     #define GOP_DEBUG_ENABLED
-//    #define GOP_NAMING_DEBUG_ENABLED // Unimplemented due to unimplemented naming section
+    #define GOP_NAMING_DEBUG_ENABLED
     #define LOADER_DEBUG_ENABLED
     #define PE_LOADER_DEBUG_ENABLED
     #define DOS_LOADER_DEBUG_ENABLED
@@ -70,11 +70,15 @@
 // Some systems need the page-by-page search, so it's best to leave this commented out
 //#define BY_PAGE_SEARCH_DISABLED
 
-// Leave this commented out: AllocateAnyPages seems to enjoy giving non-zero "free" memory addresses, and some
-// systems really need this workaround because they put important stuff at the returned address for some reason.
+// Leave this alone: It exists in the event it's needed for some really screwy systems or for aid with debugging AllocatePages
 // It's the "buggy firmware workaround."
 
-//#define MEMORY_CHECK_DISABLED
+#define MEMORY_CHECK_DISABLED
+
+// Enabling debug mode will enable the memory check automatically
+#ifdef ENABLE_DEBUG
+#undef MEMORY_CHECK_DISABLED
+#endif
 
 //==================================================================================================================================
 // Loader Structures
@@ -128,5 +132,9 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
 EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRESS OldAddress);
 
 VOID print_memmap(void);
+
+#ifdef GOP_NAMING_DEBUG_ENABLED
+EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray);
+#endif
 
 #endif

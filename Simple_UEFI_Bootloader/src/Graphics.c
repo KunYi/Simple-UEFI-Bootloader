@@ -14,11 +14,6 @@
 //
 
 #include "Bootloader.h"
-//#define GOP_NAMING_DEBUG_ENABLED
-
-#ifdef GOP_NAMING_DEBUG_ENABLED
-EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray);
-#endif
 
 //==================================================================================================================================
 //  InitUEFI_GOP: Graphics Initialization
@@ -942,7 +937,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
         Print(L"Setting graphics mode %u of %u.\r\n\n", mode, GOPTable->Mode->MaxMode - 1);
       }
-
+/*
       // Query current mode to get size and info
       // QueryMode allocates EfiBootServicesData
       GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
@@ -951,13 +946,22 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+      // Set mode
+      // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
+      GOPStatus = GOPTable->SetMode(GOPTable, mode);
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
+        return GOPStatus;
+      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
+      Print(L"Current GOP Info Size: %llu\r\n", GOPTable->Mode->SizeOfInfo);
 #endif
 
       // Allocate graphics mode info
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
+      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPTable->Mode->SizeOfInfo, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -967,14 +971,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Current mode info allocated.\r\n");
 #endif
-
-      // Set mode
-      GOPStatus = GOPTable->SetMode(GOPTable, mode); // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
-        return GOPStatus;
-      }
 
       // Store graphics mode info
       // Can't blanketly store Mode struct because Mode->Info pointer in array will get overwritten
@@ -992,7 +988,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
-
+/*
       // Free pools
       GOPStatus = BS->FreePool(GOPTable->Mode->Info);
       if(EFI_ERROR(GOPStatus))
@@ -1000,6 +996,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+
 /*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
@@ -1171,7 +1169,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
       Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
     }
-
+/*
     // Query current mode to get size and info
     // QueryMode allocates EfiBootServicesData
     GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
@@ -1180,14 +1178,23 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
+*/
+    // Set mode
+    // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
+    GOPStatus = GOPTable->SetMode(GOPTable, mode);
+    if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
 
 #ifdef GOP_DEBUG_ENABLED
-    Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
+    Print(L"Current GOP Info Size: %llu\r\n", GOPTable->Mode->SizeOfInfo);
 #endif
 
     DevNum = 0; // There's only one item in the array
     // Allocate graphics mode info
-    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPTable->Mode->SizeOfInfo, (void**)&Graphics->GPUArray[DevNum].Info);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -1197,14 +1204,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"Current mode info allocated.\r\n");
 #endif
-
-    // Set mode
-    GOPStatus = GOPTable->SetMode(GOPTable, mode); // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
-      return GOPStatus;
-    }
 
     // Store graphics mode info
     // Can't blanketly store Mode struct because Mode->Info pointer in array will get overwritten
@@ -1222,7 +1221,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
-
+/*
     // Free pools
     GOPStatus = BS->FreePool(GOPTable->Mode->Info);
     if(EFI_ERROR(GOPStatus))
@@ -1230,6 +1229,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
+*/
+
 /*
     GOPStatus = BS->FreePool(GOPTable->Mode);
     if(EFI_ERROR(GOPStatus))
@@ -1264,7 +1265,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     // Configure
     for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
     {
-      Print(L"0x%llx\r\n", GraphicsHandles[DevNum]); // TODO: This stops the toothpaste bug. Must need volatile somewhere.
+//      Print(L"0x%llx\r\n", GraphicsHandles[DevNum]);
 //      Print(L"%c. GPU #%c: 0x%llx\r\n", DevNum + 0x30, DevNum + 0x30, GraphicsHandles[DevNum]); // Memory address of GPU handle
 //      Print(L"%s", NameBuffer[DevNum]);
 //      Print(L"\r\n");
@@ -1317,7 +1318,9 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       mode = 0;
 
       Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
+///
 
+/*
       // Query current mode to get size and info
       // QueryMode allocates EfiBootServicesData
       GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
@@ -1326,16 +1329,27 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+///
+
+      // Set mode
+      // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
+      GOPStatus = GOPTable->SetMode(GOPTable, mode);
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
+        return GOPStatus;
+      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
+      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", GOPTable->Mode->Mode, GOPTable->Mode->MaxMode - 1, GOPTable->Mode->SizeOfInfo, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
       Print(L"PxPerScanLine: %u\r\n", GOPTable->Mode->Info->PixelsPerScanLine);
       Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPTable->Mode->Info->PixelFormat, GOPTable->Mode->Info->PixelInformation.RedMask, GOPTable->Mode->Info->PixelInformation.GreenMask, GOPTable->Mode->Info->PixelInformation.BlueMask, GOPTable->Mode->Info->PixelInformation.ReservedMask);
       Keywait(L"\0");
 #endif
 
       // Allocate graphics mode info
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
+      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPTable->Mode->SizeOfInfo, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -1345,14 +1359,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Current mode info allocated.\r\n");
 #endif
-
-      // Set mode
-      GOPStatus = GOPTable->SetMode(GOPTable, mode); // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
-        return GOPStatus;
-      }
 
       // Store graphics mode info
       // Can't blanketly store Mode struct because Mode->Info pointer in array will get overwritten
@@ -1370,7 +1376,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
-
+///
+/*
       // Free pools
       GOPStatus = BS->FreePool(GOPTable->Mode->Info);
       if(EFI_ERROR(GOPStatus))
@@ -1378,6 +1385,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+///
 /*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
@@ -1500,7 +1509,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       }
 
       Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
-
+/*
       // Query current mode to get size and info
       // QueryMode allocates EfiBootServicesData
       GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
@@ -1509,16 +1518,26 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+
+      // Set mode
+      // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
+      GOPStatus = GOPTable->SetMode(GOPTable, mode);
+      if(EFI_ERROR(GOPStatus))
+      {
+        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
+        return GOPStatus;
+      }
 
 #ifdef GOP_DEBUG_ENABLED
-      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", mode, GOPTable->Mode->MaxMode - 1, GOPInfoSize, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
+      Print(L"Mode %u of %u (%llu Bytes):\r\n Ver: 0x%x, Res: %ux%u\r\n", GOPTable->Mode->Mode, GOPTable->Mode->MaxMode - 1, GOPTable->Mode->SizeOfInfo, GOPTable->Mode->Info->Version, GOPTable->Mode->Info->HorizontalResolution, GOPTable->Mode->Info->VerticalResolution);
       Print(L"PxPerScanLine: %u\r\n", GOPTable->Mode->Info->PixelsPerScanLine);
       Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", GOPTable->Mode->Info->PixelFormat, GOPTable->Mode->Info->PixelInformation.RedMask, GOPTable->Mode->Info->PixelInformation.GreenMask, GOPTable->Mode->Info->PixelInformation.BlueMask, GOPTable->Mode->Info->PixelInformation.ReservedMask);
       Keywait(L"\0");
 #endif
 
       // Allocate graphics mode info
-      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
+      GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPTable->Mode->SizeOfInfo, (void**)&Graphics->GPUArray[DevNum].Info);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -1528,14 +1547,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 #ifdef GOP_DEBUG_ENABLED
       Keywait(L"Current mode info allocated.\r\n");
 #endif
-
-      // Set mode
-      GOPStatus = GOPTable->SetMode(GOPTable, mode); // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
-      if(EFI_ERROR(GOPStatus))
-      {
-        Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
-        return GOPStatus;
-      }
 
       // Store graphics mode info
       // Can't blanketly store Mode struct because Mode->Info pointer in array will get overwritten
@@ -1551,10 +1562,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"Current mode info assigned.\r\n");
 #endif
 
-
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
-
+///
+/*
       // Free pools
       GOPStatus = BS->FreePool(GOPTable->Mode->Info);
       if(EFI_ERROR(GOPStatus))
@@ -1562,6 +1573,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
         return GOPStatus;
       }
+*/
+///
 /*
       GOPStatus = BS->FreePool(GOPTable->Mode);
       if(EFI_ERROR(GOPStatus))
@@ -1720,7 +1733,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
       Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
     }
-
+/*
     // Query current mode to get size and info
     // QueryMode allocates EfiBootServicesData
     GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPTable->Mode->Info); // IN IN OUT OUT
@@ -1729,13 +1742,22 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"GraphicsTable QueryMode error 2. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
+*/
+    // Set mode
+    // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
+    GOPStatus = GOPTable->SetMode(GOPTable, mode);
+    if(EFI_ERROR(GOPStatus))
+    {
+      Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
 
 #ifdef GOP_DEBUG_ENABLED
-    Print(L"GOPInfoSize: %llu\r\n", GOPInfoSize);
+    Print(L"Current GOP Info Size: %llu\r\n", GOPTable->Mode->SizeOfInfo);
 #endif
 
     // Allocate graphics mode info
-    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPInfoSize, (void**)&Graphics->GPUArray[DevNum].Info);
+    GOPStatus = ST->BootServices->AllocatePool(EfiLoaderData, GOPTable->Mode->SizeOfInfo, (void**)&Graphics->GPUArray[DevNum].Info);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GOP Mode->Info AllocatePool error. 0x%llx\r\n", GOPStatus);
@@ -1745,14 +1767,6 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 #ifdef GOP_DEBUG_ENABLED
     Keywait(L"Current mode info allocated.\r\n");
 #endif
-
-    // Set mode
-    GOPStatus = GOPTable->SetMode(GOPTable, mode); // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
-    if(EFI_ERROR(GOPStatus))
-    {
-      Print(L"GraphicsTable SetMode error. 0x%llx\r\n", GOPStatus);
-      return GOPStatus;
-    }
 
     // Store graphics mode info
     // Can't blanketly store Mode struct because Mode->Info pointer in array will get overwritten
@@ -1770,7 +1784,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
 // I'm not sure we even need these, especially if AllocatePool is set to allocate EfiBootServicesData for them
 // EfiBootServicesData just gets cleared on ExitBootServices() anyways
-
+/*
     // Free pools
     GOPStatus = BS->FreePool(GOPTable->Mode->Info);
     if(EFI_ERROR(GOPStatus))
@@ -1778,6 +1792,8 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"Error freeing GOPTable Mode Info pool. 0x%llx\r\n", GOPStatus);
       return GOPStatus;
     }
+*/
+
 /*
     GOPStatus = BS->FreePool(GOPTable->Mode);
     if(EFI_ERROR(GOPStatus))
@@ -1824,7 +1840,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     return GOPStatus;
   }
 
-//#ifdef GOP_DEBUG_ENABLED // TODO: Re-comment this
+#ifdef GOP_DEBUG_ENABLED
     // Data verification
   for(DevNum = 0; DevNum < Graphics->NumberOfFrameBuffers; DevNum++)
   {
@@ -1837,7 +1853,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Print(L"PxFormat: 0x%x, PxInfo (R,G,B,Rsvd Masks): 0x%08x, 0x%08x, 0x%08x, 0x%08x\r\n", Graphics->GPUArray[DevNum].Info->PixelFormat, Graphics->GPUArray[DevNum].Info->PixelInformation.RedMask, Graphics->GPUArray[DevNum].Info->PixelInformation.GreenMask, Graphics->GPUArray[DevNum].Info->PixelInformation.BlueMask, Graphics->GPUArray[DevNum].Info->PixelInformation.ReservedMask);
     Keywait(L"\0");
   }
-//#endif
+#endif
 
   return GOPStatus;
 }

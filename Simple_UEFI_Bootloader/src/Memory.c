@@ -50,7 +50,7 @@ UINT8 VerifyZeroMem(UINT64 NumBytes, UINT64 BaseAddr) // BaseAddr is a 64-bit un
 {
   for(UINT64 i = 0; i < NumBytes; i++)
   {
-    if(*(UINT64*)(BaseAddr + i) != 0) // The smallest unit of UEFI memory is 4kB page, so checking 8 bytes at a time is faster than 1.
+    if(*(((UINT8*)BaseAddr) + i) != 0)
     {
       return 1;
     }
