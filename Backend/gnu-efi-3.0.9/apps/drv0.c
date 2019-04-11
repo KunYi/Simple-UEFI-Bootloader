@@ -141,7 +141,9 @@ Drv0Unload(IN EFI_HANDLE ImageHandle)
                                  &GnuEfiAppsDrv0ProtocolGuid,
                                  &InternalGnuEfiAppsDrv0ProtocolData.Proto,
                                  NULL);
-  Print(L"Driver instance unloaded.\n", ImageHandle);
+//  Print(L"Driver instance unloaded.\n", ImageHandle); // Looks like another bug
+  Print(L"Driver instance unloaded.\n");
+
   return EFI_SUCCESS;
 }
 

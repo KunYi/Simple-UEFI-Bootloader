@@ -164,7 +164,7 @@ set +v
 # Remove -s in the above command to keep debug symbols in the output binary.
 
 #
-# Create an EFI exectuable from program.so and output the program size
+# Create an EFI executable from program.so and output the program size
 #
 
 echo

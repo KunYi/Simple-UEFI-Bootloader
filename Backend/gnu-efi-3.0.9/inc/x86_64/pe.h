@@ -104,6 +104,7 @@ typedef struct _IMAGE_FILE_HEADER {
 #define IMAGE_FILE_MACHINE_TAHOE             0x7cc   // Intel EM machine
 #define IMAGE_FILE_MACHINE_EBC               0xebc   // EFI Byte Code
 #define IMAGE_FILE_MACHINE_X64               0x8664  // x86_64
+#define IMAGE_FILE_MACHINE_AA64              0xAA64  // Aarch64
 //
 // Directory format.
 //

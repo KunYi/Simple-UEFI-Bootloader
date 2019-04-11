@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Bootloader Entrypoint
 //==================================================================================================================================
 //
-// Version 1.4
+// Version 1.5
 //
 // Author:
 //  KNNSpeed
@@ -16,13 +16,18 @@
 // It loads programs named "Kernel64" and passes the following structure to them:
 /*
   typedef struct {
-    UINTN                   Memory_Map_Size;            // The total size of the system memory map
-    UINTN                   Memory_Map_Descriptor_Size; // The size of an individual memory descriptor
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;                 // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
-    EFI_RUNTIME_SERVICES   *RTServices;                 // UEFI Runtime Services
-    GPU_CONFIG             *GPU_Configs;                // Information about available graphics output devices; see below for details
-    EFI_FILE_INFO          *FileMeta;                   // Kernel64 file metadata
-    void                   *RSDP;                       // A pointer to the RSDP ACPI table
+    UINT16                  Bootloader_MajorVersion;        // The major version of the bootloader
+    UINT16                  Bootloader_MinorVersion;        // The minor version of the bootloader
+    EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;             // The base memory address of the loaded Kernel64 file
+    UINTN                   Kernel_Pages;                   // The number of pages allocated for the Kernel64 file
+    UINTN                   Memory_Map_Size;                // The total size of the system memory map
+    UINTN                   Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
+    UINT32                  Memory_Map_Descriptor_Version;  // The memory descriptor version
+    EFI_MEMORY_DESCRIPTOR  *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    EFI_RUNTIME_SERVICES   *RTServices;                     // UEFI Runtime Services
+    GPU_CONFIG             *GPU_Configs;                    // Information about available graphics output devices; see below for details
+    EFI_FILE_INFO          *FileMeta;                       // Kernel64 file metadata
+    void                   *RSDP;                           // A pointer to the RSDP ACPI table
   } LOADER_PARAMS;
 */
 //
@@ -55,9 +60,6 @@
 //
 
 #include "Bootloader.h"
-
-#define MAJOR_VER 1
-#define MINOR_VER 4
 
 //==================================================================================================================================
 //  efi_main: Main Function

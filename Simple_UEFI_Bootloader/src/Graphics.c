@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Graphics Functions
 //==================================================================================================================================
 //
-// Version 1.4
+// Version 1.5
 //
 // Author:
 //  KNNSpeed
@@ -105,6 +105,22 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   CHAR16 * DriverDisplayName = DefaultDriverDisplayName;
   CHAR16 * ControllerDisplayName = DefaultControllerDisplayName;
   CHAR16 * ChildDisplayName = DefaultChildDisplayName;
+
+  // Wall of Shame:
+  // Drivers of devices that improperly return GetControllerName and claim to be the controllers of anything you give them.
+  // You can find some of these by searching for "ppControllerName" in EDK2.
+
+  // In the comment adjacent each driver name you'll see listed the controller name that will ruin your day.
+  #define NUM_ON_WALL 4
+
+  CONST CHAR16 AmiPS2Drv[16] = L"AMI PS/2 Driver"; // L"Generic PS/2 Keyboard"
+  CONST CHAR16 AsixUSBEth10Drv[34] = L"ASIX AX88772B Ethernet Driver 1.0"; // L"ASIX AX88772B USB Fast Ethernet Controller"
+  CONST CHAR16 SocketLayerDrv[20] = L"Socket Layer Driver"; // L"Socket Layer";
+  CONST CHAR16 Asix10100EthDrv[24] = L"AX88772 Ethernet Driver"; // L"AX88772 10/100 Ethernet"
+
+  CONST CHAR16 * CONST Wall_of_Shame[NUM_ON_WALL] = {AmiPS2Drv, AsixUSBEth10Drv, SocketLayerDrv, Asix10100EthDrv};
+
+  // End Wall_of_Shame init
 
   // We can pick which graphics output device we want (handy for multi-GPU setups)...
   EFI_HANDLE *GraphicsHandles; // Array of discovered graphics handles that support the Graphics Output Protocol
@@ -594,6 +610,34 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
                 // Those who refuse to follow them get this.
                 DriverDisplayName = DefaultDriverDisplayName;
               }
+              else // Wall of Shame check
+              {
+                UINTN KnownBadDriversIter;
+                UINTN a = StrLen(DriverDisplayName);
+
+                for(KnownBadDriversIter = 0; KnownBadDriversIter < NUM_ON_WALL; KnownBadDriversIter++)
+                {
+#ifdef GOP_NAMING_DEBUG_ENABLED
+                  Print(L"%s - %s\r\n", DriverDisplayName, Wall_of_Shame[KnownBadDriversIter]);
+#endif
+                  UINTN b = StrLen(Wall_of_Shame[KnownBadDriversIter]);
+                  if(compare(DriverDisplayName, Wall_of_Shame[KnownBadDriversIter], (a < b) ? a : b)) // Need to compare data, not pointers
+                  {
+#ifdef GOP_NAMING_DEBUG_ENABLED
+                    Print(L"Matched a known bad driver: %s\r\n", Wall_of_Shame[KnownBadDriversIter]);
+#endif
+                    // Get MAD. I don't want your damn lemons! What am I supposed to do with these?!
+                    // (Props to anyone who gets the reference)
+                    DriverDisplayName = DefaultDriverDisplayName;
+                    break;
+                  }
+                }
+                if(KnownBadDriversIter < NUM_ON_WALL) // If it broke out of the loop...
+                {
+                  continue; // Try the next Name2DriverIndex
+                }
+                // Otherwise we might have found the device we're looking for. ...Hopefully it's not another thing to add to the Wall of Shame.
+              }
               // Got driver's name
 
 #ifdef GOP_NAMING_DEBUG_ENABLED
@@ -846,7 +890,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 */
-      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GraphicsTable OpenProtocol error. 0x%llx\r\n", GOPStatus);
@@ -1078,7 +1122,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 */
-    GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+    GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GraphicsTable OpenProtocol error. 0x%llx\r\n", GOPStatus);
@@ -1297,7 +1341,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 */
-      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GraphicsTable OpenProtocol error. 0x%llx\r\n", GOPStatus);
@@ -1455,7 +1499,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 */
-      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+      GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
       if(EFI_ERROR(GOPStatus))
       {
         Print(L"GraphicsTable OpenProtocol error. 0x%llx\r\n", GOPStatus);
@@ -1642,7 +1686,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Keywait(L"GOPTable and Mode pools allocated....\r\n");
 #endif
 */
-    GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+    GOPStatus = BS->OpenProtocol(GraphicsHandles[DevNum], &GraphicsOutputProtocol, (void**)&GOPTable, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
     if(EFI_ERROR(GOPStatus))
     {
       Print(L"GraphicsTable OpenProtocol error. 0x%llx\r\n", GOPStatus);

@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 1.4
+// Version 1.5
 //
 // Author:
 //  KNNSpeed
@@ -47,6 +47,10 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
   EFI_STATUS GoTimeStatus;
 
+  // These hold data for the loader params at the end
+  EFI_PHYSICAL_ADDRESS KernelBaseAddress = 0;
+  UINTN KernelPages = 0;
+
   // Load file called Kernel64 from this drive's root
 
 	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
@@ -62,7 +66,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // Get a pointer to the (loaded image) pointer of BOOTX64.EFI
   // Pointer 1 -> Pointer 2 -> BOOTX64.EFI
   // OpenProtocol wants Pointer 1 as input to give you Pointer 2.
-	GoTimeStatus = ST->BootServices->OpenProtocol(ImageHandle, &LoadedImageProtocol, (void**)&LoadedImage, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+	GoTimeStatus = ST->BootServices->OpenProtocol(ImageHandle, &LoadedImageProtocol, (void**)&LoadedImage, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"LoadedImage OpenProtocol error. 0x%llx\r\n", GoTimeStatus);
@@ -81,7 +85,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 */
   // Parent device of BOOTX64.EFI (the ImageHandle originally passed in is this very file)
   // Loadedimage is an EFI_LOADED_IMAGE_PROTOCOL pointer that points to BOOTX64.EFI
-  GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+  GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"FileSystem OpenProtocol error. 0x%llx\r\n", GoTimeStatus);
@@ -352,6 +356,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         // A 4GB bootloader, or even kernel, would be insane. You'd need to use a 64-bit linux ELF for those.
 
         UINT64 pages = EFI_SIZE_TO_PAGES(virt_size); // To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
@@ -922,6 +927,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         }
 
         //AddressOfEntryPoint should be a 32-bit relative mem address of the entry point of the kernel
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + (UINT64)PEHeader.OptionalHeader.AddressOfEntryPoint;
 
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -953,6 +959,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
       size = (UINT64)(512*DOSheader.e_cp + DOSheader.e_cblp - 16*DOSheader.e_cparhdr); // Bytes of MZ load module
       UINT64 pages = EFI_SIZE_TO_PAGES(size);
+      KernelPages = pages;
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
       Print(L"e_cp: %hu, e_cblp: %hu, e_cparhdr: %hu\r\n", DOSheader.e_cp, DOSheader.e_cblp, DOSheader.e_cparhdr);
@@ -1013,6 +1020,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       // mov relocated e_sp to %rsp
 
       // Normally, entry point is in e_ip...
+      KernelBaseAddress = DOSMem;
       Header_memory = DOSMem + (UINT64)DOSheader.e_ip*16;
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
@@ -1136,6 +1144,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
         // Virt_min is technically also the base address of the loadable segments
         UINT64 pages = EFI_SIZE_TO_PAGES(virt_size - virt_min); //To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
@@ -1534,6 +1543,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         // Link kernel with -static-pie and there's no need for relocations beyond the base-relative ones just done. YUS!
 
         // e_entry should be a 64-bit relative memory address, and gives the kernel's entry point
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + ELF64header.e_entry;
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
@@ -1668,6 +1678,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
 
         UINT64 pages = EFI_SIZE_TO_PAGES(virt_size - virt_min); // To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
@@ -2088,6 +2099,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
 
         // entrypointoffset should be a 64-bit relative mem address of the entry point of the kernel
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + entrypointoffset;
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
@@ -2334,8 +2346,13 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 /*
   // Loader block defined in header
   typedef struct {
+    UINT16                  Bootloader_MajorVersion;
+    UINT16                  Bootloader_MinorVersion;
+    EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;
+    UINTN                   Kernel_Pages;
     UINTN                   Memory_Map_Size;
     UINTN                   Memory_Map_Descriptor_Size;
+    UINT32                  Memory_Map_Descriptor_Version;
     EFI_MEMORY_DESCRIPTOR  *Memory_Map;
     EFI_RUNTIME_SERVICES   *RTServices;
     GPU_CONFIG             *GPU_Configs;
@@ -2345,10 +2362,19 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 */
 
   // This shouldn't modify the memory map.
-  // TODO: Add base address of kernel (Header_memory EFI_PHYSICAL_ADDRESS) and size (in pages), same for bootloader (ImageHandle.ImageBase (void*) and .ImageSize (uint64) so it can be reclaimed)
+  // TODO: Kernel64.txt for arbitrary kernel64 location and cmdline support. Add Boot_Device_Path (from Loadedimage->DeviceHandle), Kernel_File_Path (from .txt), and Command_Line (from .txt) to params.
+
+  Loader_block->Bootloader_MajorVersion = MAJOR_VER;
+  Loader_block->Bootloader_MinorVersion = MINOR_VER;
+
+  Loader_block->Kernel_BaseAddress = KernelBaseAddress;
+  Loader_block->Kernel_Pages = KernelPages;
+
   Loader_block->Memory_Map_Size = MemMapSize;
   Loader_block->Memory_Map_Descriptor_Size = MemMapDescriptorSize;
+  Loader_block->Memory_Map_Descriptor_Version = MemMapDescriptorVersion;
   Loader_block->Memory_Map = MemMap;
+
   Loader_block->RTServices = RT;
   Loader_block->GPU_Configs = Graphics;
   Loader_block->FileMeta = FileInfo;

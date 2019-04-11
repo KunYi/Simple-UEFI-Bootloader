@@ -1358,29 +1358,32 @@ FloatToString (
     /*
      * Keep fractional part.
      */
-    float f = (float)(v - i);
+    // float f = (float)(v - i); // Wait, shouldn't these be doubles? Single floats make 'v' lose precision...
+    double f = (double)(v - i);
     if (f < 0) f = -f;
 
 
     /*
      * Leading fractional zeroes.
      */
-    f *= 10.0;
+    f *= 10.0; // Don't know what the author originally intended here: f *= 10.0f; or (double)f *= 10.0; ...?
     while (   (f != 0)
            && ((INTN)f == 0))
     {
       Buffer[x] = L'0';
       x++;
-      f *= 10.0;
+      f *= 10.0; // See above comment: f *= 10.0f; or (double)f *= 10.0; ...?
     }
 
 
     /*
      * Fractional digits.
      */
-    while ((float)(INTN)f != f)
+    // while ((float)(INTN)f != f) // Changing these to doubles
+    while ((double)(INTN)f != f)
     {
-      f *= 10;
+      // f *= 10;
+      f *= 10.0; // This should probably match the above...
     }
     ValueToString(Buffer + x, FALSE, (INTN)f);
     return;

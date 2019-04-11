@@ -1,13 +1,13 @@
 /*
  * Copyright (c) 2006 - 2008, Intel Corporation. All rights reserved.
- * This program and the accompanying materials are licensed and made 
+ * This program and the accompanying materials are licensed and made
 available
- * under the terms and conditions of the BSD License which accompanies 
+ * under the terms and conditions of the BSD License which accompanies
 this
  * distribution.  The full text of the license may be found at
  * http://opensource.org/licenses/bsd-license.php.
  *
- * THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS" 
+ * THE PROGRAM IS DISTRIBUTED UNDER THE BSD LICENSE ON AN "AS IS"
 BASIS,
  * WITHOUT WARRANTIES OR REPRESENTATIONS OF ANY KIND, EITHER EXPRESS OR
  * IMPLIED.
@@ -34,7 +34,11 @@ BASIS,
 #define REG_ONE(REG1, OFFS)             str REG1, [x0, OFFS]
 
 	.globl	setjmp
-	.type	setjmp, @function
+#ifndef __MINGW32__
+	.type setjmp, @function
+#else
+	.def setjmp; .scl 2; .type 32; .endef
+#endif
 setjmp:
 	mov	x16, sp
 	GPR_LAYOUT
@@ -49,7 +53,11 @@ setjmp:
 #define REG_ONE(REG1, OFFS)             ldr REG1, [x0, OFFS]
 
 	.globl	longjmp
+#ifndef __MINGW32__
 	.type	longjmp, @function
+#else
+	.def longjmp; .scl 2; .type 32; .endef
+#endif
 longjmp:
 	GPR_LAYOUT
 	FPR_LAYOUT
