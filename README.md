@@ -51,9 +51,9 @@ Note that each of these files already has appropriate crediting at the top, so y
 
 ### How to Use
 
-1. [External Drive, ignore step 2] On an external FAT or FAT32 drive (USB, floppy, whatever), make an "EFI" folder, and inside that make a "BOOT" folder. Put the desired bootloader binary in the BOOT folder, and name the binary BOOTX64.EFI. This is just standard booting procedure: a FAT32 volume containing \\EFI\\BOOT\\BOOTX64.EFI is defined by specification to be the default UEFI boot file for that drive on x86-64.
+1. **[External Drive, ignore step 2]** On an external FAT or FAT32 drive (USB, floppy, whatever), make an "EFI" folder, and inside that make a "BOOT" folder. Put the desired bootloader binary in the BOOT folder, and name the binary BOOTX64.EFI. This is just standard booting procedure: a FAT32 volume containing \\EFI\\BOOT\\BOOTX64.EFI is defined by specification to be the default UEFI boot file for that drive on x86-64.
 
-2. [Internal Drive, ignore step 1] Put this program anywhere you want on the EFI System Partition and add it to your UEFI firmware as a boot option. The default bootable file that UEFI firmware looks for is BOOTX64.EFI in the directory \\EFI\\BOOT\\, so you could just rename the bootloader file accordingly and put it at that location to boot it automatically.  
+2. **[Internal Drive, ignore step 1]** Put this program anywhere you want on the EFI System Partition and add it to your UEFI firmware as a boot option. The default bootable file that UEFI firmware looks for is BOOTX64.EFI in the directory \\EFI\\BOOT\\, so you could just rename the bootloader file accordingly and put it at that location to boot it automatically.  
 
 3. Put the bare metal program or kernel somewhere on the same FAT32 drive or EFI System Partition.
 
