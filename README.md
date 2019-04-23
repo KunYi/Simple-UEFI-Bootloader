@@ -51,15 +51,15 @@ Note that each of these files already has appropriate crediting at the top, so y
 
 ### How to Use
 
-1a. [External Drive] On an external FAT or FAT32 drive (USB, floppy, whatever), make an "EFI" folder, and inside that make a "BOOT" folder. Put the desired bootloader binary in the BOOT folder, and name the binary BOOTX64.EFI. This is just standard booting procedure: a FAT32 volume containing \\EFI\\BOOT\\BOOTX64.EFI is defined by specification to be the default UEFI boot file for that drive on x86-64.
+1. [External Drive, ignore step 2] On an external FAT or FAT32 drive (USB, floppy, whatever), make an "EFI" folder, and inside that make a "BOOT" folder. Put the desired bootloader binary in the BOOT folder, and name the binary BOOTX64.EFI. This is just standard booting procedure: a FAT32 volume containing \\EFI\\BOOT\\BOOTX64.EFI is defined by specification to be the default UEFI boot file for that drive on x86-64.
 
-1b. [Internal Drive] Put this program anywhere you want on the EFI System Partition and add it to your UEFI firmware as a boot option. The default bootable file that UEFI firmware looks for is BOOTX64.EFI in the directory \\EFI\\BOOT\\, so you could just rename the bootloader file accordingly and put it at that location to boot it automatically.  
+2. [Internal Drive, ignore step 1] Put this program anywhere you want on the EFI System Partition and add it to your UEFI firmware as a boot option. The default bootable file that UEFI firmware looks for is BOOTX64.EFI in the directory \\EFI\\BOOT\\, so you could just rename the bootloader file accordingly and put it at that location to boot it automatically.  
 
-2. Put the bare metal program or kernel somewhere on the same FAT32 drive or EFI System Partition.
+3. Put the bare metal program or kernel somewhere on the same FAT32 drive or EFI System Partition.
 
-3. Make a file called **Kernel64.txt**--this should be stored **in the same folder as the bootloader itself.** See the next section for how to properly format this file.
+4. Make a file called **Kernel64.txt**--this should be stored **in the same folder as the bootloader itself.** See the next section for how to properly format this file.
 
-4. Boot your machine, and enter the boot device menu. This is commonly achieved by pressing a key like F10 or F12 at the boot logo. Select the option **UEFI ... [your drive or boot entry containing the bootloader and kernel]** -- the name varies depending on the type of drive used and the motherboard model.
+5. Boot your machine, and enter the boot device menu. This is commonly achieved by pressing a key like F10 or F12 at the boot logo. Select the option **UEFI ... [your drive or boot entry containing the bootloader and kernel]** -- the name varies depending on the type of drive used and the motherboard model.
 
     NOTE: You should be sure your system supports booting from external media if you are using a USB drive, and ensure that the system is not configured to boot in Legacy or BIOS mode (i.e. it has UEFI booting enabled). Also, spaces in file/folder names are not allowed.
 
