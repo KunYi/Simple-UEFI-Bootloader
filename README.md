@@ -1,7 +1,7 @@
 # Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications. Looking for the ARM64 version? Get it here: https://github.com/KNNSpeed/Simple-UEFI-Bootloader-ARM64  
 
-**Version 1.5**
+**Version 2.0**
 
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
 
@@ -13,6 +13,8 @@ A minimal, cross-platform development environment for making your own programs, 
 
 - UEFI 2.x support
 - Loads and executes kernels compiled as native Windows PE32+, Linux 64-bit ELF, and Mac OS 64-bit Mach-O files ***(1)***
+- Passes load options from a user-generated text file directly to kernel files
+- Multiple bootloader instances can coexist on one system to load separate kernel files, complete with their own load options, all using the system's native UEFI boot manager to select between them
 - Multi-GPU framebuffer support ***(2)***
 - ACPI support
 - The ability to get the full system memory map to do whatever you want with it
@@ -44,6 +46,36 @@ Please see the LICENSE file for information on all licenses covering code create
 If you don't give credit to this project, per the license you aren't allowed to do anything with any of its source code that isn't already covered by an existing license (in other words, my license covers most of the code I wrote). That's pretty much it, and why it's "almost" PD, or "PD with Credit" if I have to give it a nickname: there's no restriction on what it gets used for as long as the license is satisfied. If you have any issues, feature requests, etc. please post in "Issues" so it can be attended to/fixed.  
 
 Note that each of these files already has appropriate crediting at the top, so you could just leave what's already there to satisfy the terms. You really should see the license file for complete information, though (it's short!!).  
+
+## Usage
+
+### How to Use
+
+1a. [External Drive] On an external FAT or FAT32 drive (USB, floppy, whatever), make an "EFI" folder, and inside that make a "BOOT" folder. Put the desired bootloader binary in the BOOT folder, and name the binary BOOTX64.EFI. This is just standard booting procedure: a FAT32 volume containing \\EFI\\BOOT\\BOOTX64.EFI is defined by specification to be the default UEFI boot file for that drive on x86-64.
+
+1b. [Internal Drive] Put this program anywhere you want on the EFI System Partition and add it to your UEFI firmware as a boot option. The default bootable file that UEFI firmware looks for is BOOTX64.EFI in the directory \\EFI\\BOOT\\, so you could just rename the bootloader file accordingly and put it at that location to boot it automatically.  
+
+2. Put the bare metal program or kernel somewhere on the same FAT32 drive or EFI System Partition.
+
+3. Make a file called **Kernel64.txt**--this should be stored **in the same folder as the bootloader itself.** See the next section for how to properly format this file.
+
+4. Boot your machine, and enter the boot device menu. This is commonly achieved by pressing a key like F10 or F12 at the boot logo. Select the option **UEFI ... [your drive or boot entry containing the bootloader and kernel]** -- the name varies depending on the type of drive used and the motherboard model.
+
+    NOTE: You should be sure your system supports booting from external media if you are using a USB drive, and ensure that the system is not configured to boot in Legacy or BIOS mode (i.e. it has UEFI booting enabled). Also, spaces in file/folder names are not allowed.
+
+That's it! If your Kernel64 file's entry point function is something like **main_function(LOADER_PARAMS * LP)**, it should load after you select how you want your graphics output device(s) configured. See https://github.com/KNNSpeed/Simple-Kernel for an example, including proper compilation options.
+
+### Kernel64.txt Format and Contents
+
+Kernel64.txt should be stored in UTF-16 format in the same directory as the boot loader on the EFI system partition. Windows Notepad and Wordpad can save text files in this format (select "Unicode Text Document" or "UTF-16 LE" as the encoding format in the "Save As" dialog). Linux users can use gedit or xed, saving as a .txt file with UTF-16 encoding. Also, it does not matter if the file uses Windows (CRLF) or Unix (LF) line endings, but the file does need a 2-byte identification Byte Order Mark (BOM). Don't worry too much about the BOM; it gets added automatically by all of the aforementioned editors when saving with the correct encoding.  
+
+The contents of the text file are simple: only three lines are needed. The first line should be the filename and location of the kernel to be booted relative to the root of the EFI system partition, e.g. \\EFI\\Kernel1\\MyKernel.64 or \\Socks\\Bubbles.ReallyLongFileExtension (do not use spaces or special characters in file/folder names), and the second line is the string of load options to be passed to the kernel, e.g. "root=/dev/nvme0n1p5 initrd=\\\EFI\\\ubuntu\\\initrd.img ro rootfstype=ext4 debug ignore_loglevel libata.force=dump_id crashkernel=384M-:128M quiet splash acpi_rev_override=1 acpi_osi=Linux" (without quotes! -- note this example is just a random string of Linux arguments). The third line should be blank--and make sure there is a third line, as this program expects a line break to denote the end of the kernel arguments.** That's it!  
+
+ ** Technically you could use the remainder of the text file to contain an actual text document. You could put this info in there if you wanted, or your favorite song lyrics, though the smaller the text file the faster it is to load.  
+
+### Booting Multiple Kernels
+
+A copy of the bootloader and a kernel64.txt file is required for every kernel in a multi-use situation. Recommended practice for booting multiple kernels is to make a folder for each kernel, and each folder should contain its own bootloader, kernel64.txt, and kernel file. The method to boot multiple kernel files varies by machine: generally there is a firmware boot menu accessed by F10, F11, F12, etc. at power-on, and entries can be added to this menu in the UEFI firmware setup (accessed by F2, DEL, etc. at power-on). Some machines may need boot entries added by the Linux program efibootmgr, and some might only work with one UEFI application stored in the folder \\EFI\\BOOT\\ with the filename BOOTX64.EFI. In more inconvenient cases like these, it is probably easier to just boot from FAT32-formatted USB drives using the same \\EFI\\BOOT\\BOOTX64.EFI convention. If the UEFI firmware allows booting from them, CDs/DVDs and FAT/FAT16-formatted drives (like floppies) can be used with the same file/folder naming scheme, too.
 
 ## How to Build from Source  
 
@@ -115,6 +147,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
 
 ## Change Log
+
+V2.0 (4/23/2019) - Added the need for Kernel64.txt in the same style as Kernelcmd.txt from V2.x of https://github.com/KNNSpeed/UEFI-Stub-Loader. With this major change, kernels don't need to be named Kernel64 anymore, a string of load options can be passed to kernels, and multi-booting on one machine is supported by way of using the machine's built-in UEFI boot manager. How to format Kernel64.txt has been added to both this document and the usage information in "Releases." Also added new loader params: ESP_Root_Device_Path, ESP_Root_Size, Kernel_Path, Kernel_Path_Size, Kernel_Options, Kernel_Options_Size.
 
 V1.5 (4/10/2019) - Updated graphics output names to blacklist known erroneous drivers from claiming to be graphics devices, added loader params: Bootloader_MajorVersion, Bootloader_MinorVersion, Kernel_BaseAddress, Kernel_Pages, Memory_Map_Descriptor_Version, created ARM64 version (https://github.com/KNNSpeed/Simple-UEFI-Bootloader-ARM64).
 

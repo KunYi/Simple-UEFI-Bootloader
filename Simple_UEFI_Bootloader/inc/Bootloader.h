@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Main Header
 //==================================================================================================================================
 //
-// Version 1.5
+// Version 2.0
 //
 // Author:
 //  KNNSpeed
@@ -27,8 +27,8 @@
 #include "fat.h"
 #include "dos.h"
 
-#define MAJOR_VER 1
-#define MINOR_VER 5
+#define MAJOR_VER 2
+#define MINOR_VER 0
 
 //==================================================================================================================================
 // Useful Debugging Code
@@ -36,7 +36,7 @@
 //
 // Enable useful debugging prints and convenient key-awaiting pauses
 //
-// NOTE: Due to little endianness of x86-64, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
+// NOTE: Due to little endianness, all printed data at dereferenced pointers is in LITTLE ENDIAN, so each byte (0xXX) is read
 // left to right while the byte order is reversed (right to left)!!
 //
 // Debug binary has this uncommented, release has it commented
@@ -84,6 +84,20 @@
 #endif
 
 //==================================================================================================================================
+// Text File UCS-2 Definitions
+//==================================================================================================================================
+//
+// LE - Little endian
+// BE - Big endian
+//
+
+#define UTF8_BOM_LE 0xBFBBEF
+#define UTF8_BOM_BE 0xEFBBBF
+
+#define UTF16_BOM_LE 0xFEFF
+#define UTF16_BOM_BE 0xFFFE
+
+//==================================================================================================================================
 // Loader Structures
 //==================================================================================================================================
 //
@@ -110,15 +124,25 @@ typedef struct {
 typedef struct {
   UINT16                  Bootloader_MajorVersion;        // The major version of the bootloader
   UINT16                  Bootloader_MinorVersion;        // The minor version of the bootloader
-  EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;             // The base memory address of the loaded Kernel64 file
-  UINTN                   Kernel_Pages;                   // The number of pages allocated for the Kernel64 file
-  UINTN                   Memory_Map_Size;                // The total size of the system memory map
-  UINTN                   Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
+
   UINT32                  Memory_Map_Descriptor_Version;  // The memory descriptor version
+  UINTN                   Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
   EFI_MEMORY_DESCRIPTOR  *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+  UINTN                   Memory_Map_Size;                // The total size of the system memory map
+
+  EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;             // The base memory address of the loaded kernel file
+  UINTN                   Kernel_Pages;                   // The number of pages (1 page == 4096 bytes) allocated for the kernel file
+
+  CHAR16                 *ESP_Root_Device_Path;           // A UTF-16 string containing the drive root of the EFI System Partition as converted from UEFI device path format
+  UINT64                  ESP_Root_Size;                  // The size (in bytes) of the above ESP root string
+  CHAR16                 *Kernel_Path;                    // A UTF-16 string containing the kernel's file path relative to the EFI System Partition root (it's the first line of Kernel64.txt)
+  UINT64                  Kernel_Path_Size;               // The size (in bytes) of the above kernel file path
+  CHAR16                 *Kernel_Options;                 // A UTF-16 string containing various load options (it's the second line of Kernel64.txt)
+  UINT64                  Kernel_Options_Size;            // The size (in bytes) of the above load options string
+
   EFI_RUNTIME_SERVICES   *RTServices;                     // UEFI Runtime Services
-  GPU_CONFIG             *GPU_Configs;                    // Information about available graphics output devices; see above for details
-  EFI_FILE_INFO          *FileMeta;                       // Kernel64 file metadata
+  GPU_CONFIG             *GPU_Configs;                    // Information about available graphics output devices; see above GPU_CONFIG struct for details
+  EFI_FILE_INFO          *FileMeta;                       // Kernel file metadata
   void                   *RSDP;                           // A pointer to the RSDP ACPI table
 } LOADER_PARAMS;
 

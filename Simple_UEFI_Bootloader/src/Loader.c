@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 1.5
+// Version 2.0
 //
 // Author:
 //  KNNSpeed
@@ -19,7 +19,7 @@
 //  GoTime: Kernel Loader
 //==================================================================================================================================
 //
-// Load Kernel64 (64-bit PE32+, ELF, or Mach-O), exit boot services, and jump to the entry point of Kernel64.
+// Load Kernel (64-bit PE32+, ELF, or Mach-O), exit boot services, and jump to the entry point of kernel file
 //
 
 EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable)
@@ -51,18 +51,10 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   EFI_PHYSICAL_ADDRESS KernelBaseAddress = 0;
   UINTN KernelPages = 0;
 
-  // Load file called Kernel64 from this drive's root
+  // Load kernel file from somewhere on this drive
 
 	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
-  // Reserve memory for LoadedImage
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_LOADED_IMAGE_PROTOCOL), (void**)&LoadedImage);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"LoadedImage AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
-*/
+
   // Get a pointer to the (loaded image) pointer of BOOTX64.EFI
   // Pointer 1 -> Pointer 2 -> BOOTX64.EFI
   // OpenProtocol wants Pointer 1 as input to give you Pointer 2.
@@ -73,16 +65,32 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     return GoTimeStatus;
   }
 
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
-  // Reserve memory for filesystem structure
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL), (void**)&FileSystem);
+  // Need these for later
+  CHAR16 * ESPRootTemp = DevicePathToStr(DevicePathFromHandle(LoadedImage->DeviceHandle));
+  UINT64 ESPRootSize = StrSize(ESPRootTemp);
+
+  // DevicePathToStr allocates memory of type Loadedimage->ImageDataType (this is set by firmware)
+  // Instead we want a known data type, so reallocate it:
+  CHAR16 * ESPRoot;
+
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, ESPRootSize, (void**)&ESPRoot);
   if(EFI_ERROR(GoTimeStatus))
   {
-    Print(L"FileSystem AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    Print(L"ESPRoot AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
-*/
+
+  CopyMem(ESPRoot, ESPRootTemp, ESPRootSize);
+
+  GoTimeStatus = BS->FreePool(ESPRootTemp);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing ESPRootTemp pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
+
   // Parent device of BOOTX64.EFI (the ImageHandle originally passed in is this very file)
   // Loadedimage is an EFI_LOADED_IMAGE_PROTOCOL pointer that points to BOOTX64.EFI
   GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
@@ -93,14 +101,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   }
 
   EFI_FILE *CurrentDriveRoot;
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&CurrentDriveRoot);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"CurrentDriveRoot AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
-*/
+
   GoTimeStatus = FileSystem->OpenVolume(FileSystem, &CurrentDriveRoot);
   if(EFI_ERROR(GoTimeStatus))
   {
@@ -108,20 +109,314 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     return GoTimeStatus;
   }
 
-  EFI_FILE *KernelFile;
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&KernelFile);
+///
+  // Below Kernel64.txt loading & parsing code adapted from V2.1 of https://github.com/KNNSpeed/UEFI-Stub-Loader
+
+  // Locate Kernel64.txt, which should be in the same directory as this program
+  // ((FILEPATH_DEVICE_PATH*)LoadedImage->FilePath)->PathName is, e.g., \EFI\BOOT\BOOTX64.EFI
+
+  CHAR16 * BootFilePath = ((FILEPATH_DEVICE_PATH*)LoadedImage->FilePath)->PathName;
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"BootFilePath: %s\r\n", BootFilePath);
+#endif
+
+  UINTN TxtFilePathPrefixLength = 0;
+  UINTN BootFilePathLength = 0;
+
+  while(BootFilePath[BootFilePathLength] != L'\0')
+  {
+    if(BootFilePath[BootFilePathLength] == L'\\')
+    {
+      TxtFilePathPrefixLength = BootFilePathLength;
+    }
+    BootFilePathLength++;
+  }
+  BootFilePathLength += 1; // For Null Term
+  TxtFilePathPrefixLength += 1; // To account for the last '\' in the file path (file path prefix does not get null-terminated)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"BootFilePathLength: %llu, TxtFilePathPrefixLength: %llu, BootFilePath Size: %llu \r\n", BootFilePathLength, TxtFilePathPrefixLength, StrSize(BootFilePath));
+  Keywait(L"\0");
+#endif
+
+  CONST CHAR16 TxtFileName[13] = L"Kernel64.txt";
+
+  UINTN TxtFilePathPrefixSize = TxtFilePathPrefixLength * sizeof(CHAR16);
+  UINTN TxtFilePathSize = TxtFilePathPrefixSize + sizeof(TxtFileName);
+
+  CHAR16 * TxtFilePath;
+
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, TxtFilePathSize, (void**)&TxtFilePath);
   if(EFI_ERROR(GoTimeStatus))
   {
-    Print(L"KernelFile AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    Print(L"TxtFilePathPrefix AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
+
+  // Don't really need this. Data is measured to be the right size, meaning every byte in TxtFilePath gets overwritten.
+//  ZeroMem(TxtFilePath, TxtFilePathSize);
+
+  CopyMem(TxtFilePath, BootFilePath, TxtFilePathPrefixSize);
+  CopyMem(&TxtFilePath[TxtFilePathPrefixLength], TxtFileName, sizeof(TxtFileName));
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"TxtFilePath: %s, TxtFilePath Size: %llu\r\n", TxtFilePath, TxtFilePathSize);
+  Keywait(L"\0");
+#endif
+
+  // Get ready to open the Kernel64.txt file
+  EFI_FILE *KernelcmdFile;
+
+  // Open the Kernel64.txt file and assign it to the KernelcmdFile EFI_FILE variable
+  // It turns out the Open command can support directory trees with "\" like in Windows. Neat!
+  GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelcmdFile, TxtFilePath, EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
+  if (EFI_ERROR(GoTimeStatus))
+  {
+    Keywait(L"Kernel64.txt file is missing\r\n");
+    return GoTimeStatus;
+  }
+
+#ifdef LOADER_DEBUG_ENABLED
+  Keywait(L"Kernel64.txt file opened.\r\n");
+#endif
+
+  // Now to get Kernel64.txt's file size
+  UINTN Txt_FileInfoSize;
+  // Need to know the size of the file metadata to get the file metadata...
+  GoTimeStatus = KernelcmdFile->GetInfo(KernelcmdFile, &gEfiFileInfoGuid, &Txt_FileInfoSize, NULL);
+  // GetInfo will intentionally error out and provide the correct Txt_FileInfoSize value
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"Txt_FileInfoSize: %llu Bytes\r\n", Txt_FileInfoSize);
+#endif
+
+  // Prep metadata destination
+  EFI_FILE_INFO *Txt_FileInfo;
+  // Reserve memory for file info/attributes and such to prevent it from getting run over
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Txt_FileInfoSize, (void**)&Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Txt_FileInfo AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  // Actually get the metadata
+  GoTimeStatus = KernelcmdFile->GetInfo(KernelcmdFile, &gEfiFileInfoGuid, &Txt_FileInfoSize, Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"GetInfo error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+#ifdef SHOW_KERNEL_METADATA
+  // Show metadata
+  Print(L"FileName: %s\r\n", Txt_FileInfo->FileName);
+  Print(L"Size: %llu\r\n", Txt_FileInfo->Size);
+  Print(L"FileSize: %llu\r\n", Txt_FileInfo->FileSize);
+  Print(L"PhysicalSize: %llu\r\n", Txt_FileInfo->PhysicalSize);
+  Print(L"Attribute: %llx\r\n", Txt_FileInfo->Attribute);
+/*
+  NOTE: Attributes:
+
+  #define EFI_FILE_READ_ONLY 0x0000000000000001
+  #define EFI_FILE_HIDDEN 0x0000000000000002
+  #define EFI_FILE_SYSTEM 0x0000000000000004
+  #define EFI_FILE_RESERVED 0x0000000000000008
+  #define EFI_FILE_DIRECTORY 0x0000000000000010
+  #define EFI_FILE_ARCHIVE 0x0000000000000020
+  #define EFI_FILE_VALID_ATTR 0x0000000000000037
+
 */
+  Print(L"Created: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Txt_FileInfo->CreateTime.Month, Txt_FileInfo->CreateTime.Day, Txt_FileInfo->CreateTime.Year, Txt_FileInfo->CreateTime.Hour, Txt_FileInfo->CreateTime.Minute, Txt_FileInfo->CreateTime.Second, Txt_FileInfo->CreateTime.Nanosecond);
+  Print(L"Last Modified: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Txt_FileInfo->ModificationTime.Month, Txt_FileInfo->ModificationTime.Day, Txt_FileInfo->ModificationTime.Year, Txt_FileInfo->ModificationTime.Hour, Txt_FileInfo->ModificationTime.Minute, Txt_FileInfo->ModificationTime.Second, Txt_FileInfo->ModificationTime.Nanosecond);
+  Keywait(L"\0");
+#endif
+
+  // Read text file into memory now that we know the file size
+  CHAR16 * KernelcmdArray;
+  // Reserve memory for text file
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Txt_FileInfo->FileSize, (void**)&KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelcmdArray AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  // Actually read the file
+  GoTimeStatus = KernelcmdFile->Read(KernelcmdFile, &Txt_FileInfo->FileSize, KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelcmdArray read error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+#ifdef LOADER_DEBUG_ENABLED
+  Keywait(L"KernelcmdFile read into memory.\r\n");
+#endif
+
+  // UTF-16 format check
+  UINT16 BOM_check = UTF16_BOM_LE;
+  if(!compare(KernelcmdArray, &BOM_check, 2))
+  {
+    BOM_check = UTF16_BOM_BE; // Check endianness
+    if(compare(KernelcmdArray, &BOM_check, 2))
+    {
+      Print(L"Error: Kernel64.txt has the wrong endianness for this system.\r\n");
+    }
+    else // Probably missing a BOM
+    {
+      Print(L"Error: Kernel64.txt not formatted as UTF-16/UCS-2 with BOM.\r\n\n");
+      Print(L"Q: What is a BOM?\r\n\n");
+      Print(L"A: The BOM (Byte Order Mark) is a 2-byte identification sequence\r\n");
+      Print(L"(U+FEFF) at the start of a UTF16/UCS-2-encoded file.\r\n");
+      Print(L"Unfortunately not all editors add it in, and without\r\n");
+      Print(L"a BOM present programs like this one cannot easily tell that a\r\n");
+      Print(L"text file is encoded in UTF16/UCS-2.\r\n\n");
+      Print(L"Windows Notepad & Wordpad and Linux gedit & xed all add BOMs when\r\n");
+      Print(L"saving files as .txt with encoding set to \"Unicode\" (Windows)\r\n");
+      Print(L"or \"UTF16\" (Linux), so use one of them to make Kernel64.txt.\r\n\n");
+    }
+    Keywait(L"Please fix the file and try again.\r\n");
+    return GoTimeStatus;
+  }
+  // Parse Kernel64.txt file for location of kernel image and command line
+  // Kernel image location line will be of format e.g. \EFI\ubuntu\vmlinuz.efi followed by \n or \r\n
+  // Command line will just go until the next \n or \r\n, and should just be loaded as a UTF-16 string
+
+  // Get size of kernel image path & command line and populate the data retention variables
+  UINT64 FirstLineLength = 0;
+  UINT64 KernelPathSize = 0;
+
+  for(UINT64 i = 1; i < ((Txt_FileInfo->FileSize) >> 1); i++) // i starts at 1 to skip the BOM, ((Txt_FileInfo->FileSize) >> 1) is the number of 2-byte units in the file
+  {
+    if(KernelcmdArray[i] == L'\n')
+    {
+      // Account for the L'\n'
+      FirstLineLength = i + 1;
+      // The extra +1 is to start the command line parse in the correct place
+      break;
+    }
+    else if(KernelcmdArray[i] == L'\r')
+    {
+      // There'll be a \n after the \r
+      FirstLineLength = i + 1 + 1;
+      // The extra +1 is to start the command line parse in the correct place
+      break;
+    }
+
+    if(KernelcmdArray[i] != L' ') // There might be an errant space or two. Ignore them.
+    {
+      KernelPathSize++;
+    }
+  }
+  UINT64 KernelPathLen = KernelPathSize; // Need this for later
+  // Need to add null terminator. Multiply by size of CHAR16 (2 bytes) to get size.
+  KernelPathSize = (KernelPathSize + 1) << 1; // (KernelPathSize + 1) * sizeof(CHAR16)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"KernelPathSize: %llu\r\n", KernelPathSize);
+#endif
+
+  // Command line's turn
+  UINT64 CmdlineSize = 0; // Interestingly, the Linux kernel only takes 256 to 4096 chars for load options depending on architecture. Here's 2^63 UTF-16 characters (-1 to account for null terminator).
+
+  for(UINT64 j = FirstLineLength; j < ((Txt_FileInfo->FileSize) >> 1); j++)
+  {
+    if((KernelcmdArray[j] == L'\n') || (KernelcmdArray[j] == L'\r')) // Reached the end of the line
+    {
+      break;
+    }
+
+    CmdlineSize++;
+  }
+  UINT64 CmdlineLen = CmdlineSize; // Need this for later
+  // Need to add null terminator. Multiply by size of CHAR16 (2 bytes) to get size.
+  CmdlineSize = (CmdlineSize + 1) << 1; // (CmdlineSize + 1) * sizeof(CHAR16)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"CmdlineSize: %llu\r\n", CmdlineSize);
+#endif
+
+  CHAR16 * KernelPath; // EFI Kernel file's Path
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, KernelPathSize, (void**)&KernelPath);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelPath AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  CHAR16 * Cmdline; // Command line to pass to EFI kernel
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, CmdlineSize, (void**)&Cmdline);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Cmdline AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  for(UINT64 i = 1; i < FirstLineLength; i++)
+  {
+    if((KernelcmdArray[i] == L'\n') || (KernelcmdArray[i] == L'\r'))
+    {
+      break;
+    }
+
+    if(KernelcmdArray[i] != L' ') // There might be an errant space or two. Ignore them.
+    {
+      KernelPath[i-1] = KernelcmdArray[i]; // i-1 to ignore the 2 bytes of UTF-16 BOM
+    }
+  }
+  KernelPath[KernelPathLen] = L'\0'; // Need to null-terminate this string
+
+  // Command line's turn
+  for(UINT64 j = FirstLineLength; j < ((Txt_FileInfo->FileSize) >> 1); j++)
+  {
+    if((KernelcmdArray[j] == L'\n') || (KernelcmdArray[j] == L'\r')) // Reached the end of the line
+    {
+      break;
+    }
+
+    Cmdline[j-FirstLineLength] = KernelcmdArray[j];
+  }
+  Cmdline[CmdlineLen] = L'\0'; // Need to null-terminate this string
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"Kernel image path: %s\r\nKernel image path size: %u\r\n", KernelPath, KernelPathSize);
+  Print(L"Kernel command line: %s\r\nKernel command line size: %u\r\n", Cmdline, CmdlineSize);
+  Keywait(L"Loading image... (might take a second or two after pressing a key)\r\n");
+#endif
+
+  // Free pools allocated from before as they are no longer needed
+  GoTimeStatus = BS->FreePool(TxtFilePath);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing TxtFilePathPrefix pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  GoTimeStatus = BS->FreePool(KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing KernelcmdArray pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  GoTimeStatus = BS->FreePool(Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing Txt_FileInfo pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+///
+
+  EFI_FILE *KernelFile;
+
   // Open the kernel file from current drive root and point to it with KernelFile
-	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, L"Kernel64", EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
+	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, KernelPath, EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
 	if (EFI_ERROR(GoTimeStatus))
   {
-		ST->ConOut->OutputString(ST->ConOut, L"Kernel64 file is missing\r\n");
+		Print(L"%s file is missing\r\n", KernelPath);
 		return GoTimeStatus;
 	}
 
@@ -130,6 +425,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
 
   // Get address of start of file
+  // ...Don't need to do this
 //  UINT64 FileStartPosition;
 //  KernelFile->GetPosition(KernelFile, &FileStartPosition);
 //  Keywait(L"Kernel file start position acquired.\r\n");
@@ -194,15 +490,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   UINTN size = sizeof(IMAGE_DOS_HEADER);
   IMAGE_DOS_HEADER DOSheader;
 
-// Don't need to allocate memory for non-pointer DOS headers
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&DOSheader);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"DOS Header AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
-*/
   GoTimeStatus = KernelFile->Read(KernelFile, &size, &DOSheader);
   if(EFI_ERROR(GoTimeStatus))
   {
@@ -242,16 +529,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 //    size = 4 + IMAGE_SIZEOF_FILE_HEADER + IMAGE_SIZEOF_NT_OPTIONAL64_HEADER; // 264 bytes
     size = sizeof(IMAGE_NT_HEADERS64);
     IMAGE_NT_HEADERS64 PEHeader;
-
-// Don't need to allocate memory for non-pointer PE headers
-/*
-    GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&PEHeader);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"PE Header AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-      return GoTimeStatus;
-    }
-*/
 
     GoTimeStatus = KernelFile->Read(KernelFile, &size, &PEHeader);
     if(EFI_ERROR(GoTimeStatus))
@@ -942,7 +1219,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) only.\r\n");
         return GoTimeStatus;
       }
     }
@@ -1558,7 +1835,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) ELFs only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) ELFs only.\r\n");
         return GoTimeStatus;
       }
     }
@@ -2119,13 +2396,13 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else if(MACheader.magic == MH_MAGIC) // Big endian: 0xfeedface
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) Mach-Os only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) Mach-Os only.\r\n");
         return GoTimeStatus;
       }
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Neither PE32+, ELF, nor Mach-O image supplied as Kernel64. Check the binary.\r\n");
+        Print(L"Neither PE32+, ELF, nor Mach-O image supplied as kernel file. Check the binary.\r\n");
         return GoTimeStatus;
       }
     }
@@ -2165,56 +2442,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   Print(L"Data at RSDP (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(RSDPTable + 8), *(EFI_PHYSICAL_ADDRESS*)RSDPTable);
 #endif
 
-  // All EfiBootServicesData are freed by a call to ExitBootServices().
-  // The only reason these were allocated in the first place was to stop this program from overwriting itself.
-  // There should not be any memory leaks since AllocatePools were defined to be exactly the size they needed to be.
-  // These FreePools also error out.
-/*
-  // Free previously allocated file-related (Kernel64) pools
-  if(KernelFile)
-  {
-    GoTimeStatus = BS->FreePool(KernelFile);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing KernelFile pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(CurrentDriveRoot)
-  {
-    GoTimeStatus = BS->FreePool(CurrentDriveRoot);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing CurrentDriveRoot pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(FileSystem)
-  {
-    GoTimeStatus = BS->FreePool(FileSystem);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing FileSystem pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(LoadedImage)
-  {
-    GoTimeStatus = BS->FreePool(LoadedImage);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing LoadedImage pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-#ifdef LOADER_DEBUG_ENABLED
-  Keywait(L"File pools freed.\r\n");
-#endif
-*/
   // Reserve memory for the loader block
   LOADER_PARAMS * Loader_block;
   GoTimeStatus = BS->AllocatePool(EfiLoaderData, sizeof(LOADER_PARAMS), (void**)&Loader_block);
@@ -2337,7 +2564,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // ((EFIAPI void(*)(void)) Header_memory)(); // A void-returning function that takes no arguments. Neat!
 
 /*
-  // No loader block version
+  // Another example entry point jump
   typedef void (EFIAPI *EntryPointFunction)(EFI_MEMORY_DESCRIPTOR * Memory_Map, EFI_RUNTIME_SERVICES* RTServices, EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE* GPU_Mode, EFI_FILE_INFO* FileMeta, void * RSDP); // Placeholder names for jump
   EntryPointFunction EntryPointPlaceholder = (EntryPointFunction)(Header_memory);
   EntryPointPlaceholder(MemMap, RT, &Graphics, FileInfo, RSDPTable);
@@ -2348,12 +2575,22 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   typedef struct {
     UINT16                  Bootloader_MajorVersion;
     UINT16                  Bootloader_MinorVersion;
+
+    UINT32                  Memory_Map_Descriptor_Version;
+    UINTN                   Memory_Map_Descriptor_Size;
+    EFI_MEMORY_DESCRIPTOR  *Memory_Map;
+    UINTN                   Memory_Map_Size;
+
     EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;
     UINTN                   Kernel_Pages;
-    UINTN                   Memory_Map_Size;
-    UINTN                   Memory_Map_Descriptor_Size;
-    UINT32                  Memory_Map_Descriptor_Version;
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;
+
+    CHAR16                 *ESP_Root_Device_Path;
+    UINT64                  ESP_Root_Size;
+    CHAR16                 *Kernel_Path;
+    UINT64                  Kernel_Path_Size;
+    CHAR16                 *Kernel_Options;
+    UINT64                  Kernel_Options_Size;
+
     EFI_RUNTIME_SERVICES   *RTServices;
     GPU_CONFIG             *GPU_Configs;
     EFI_FILE_INFO          *FileMeta;
@@ -2362,18 +2599,24 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 */
 
   // This shouldn't modify the memory map.
-  // TODO: Kernel64.txt for arbitrary kernel64 location and cmdline support. Add Boot_Device_Path (from Loadedimage->DeviceHandle), Kernel_File_Path (from .txt), and Command_Line (from .txt) to params.
 
   Loader_block->Bootloader_MajorVersion = MAJOR_VER;
   Loader_block->Bootloader_MinorVersion = MINOR_VER;
 
+  Loader_block->Memory_Map_Descriptor_Version = MemMapDescriptorVersion;
+  Loader_block->Memory_Map_Descriptor_Size = MemMapDescriptorSize;
+  Loader_block->Memory_Map = MemMap;
+  Loader_block->Memory_Map_Size = MemMapSize;
+
   Loader_block->Kernel_BaseAddress = KernelBaseAddress;
   Loader_block->Kernel_Pages = KernelPages;
 
-  Loader_block->Memory_Map_Size = MemMapSize;
-  Loader_block->Memory_Map_Descriptor_Size = MemMapDescriptorSize;
-  Loader_block->Memory_Map_Descriptor_Version = MemMapDescriptorVersion;
-  Loader_block->Memory_Map = MemMap;
+  Loader_block->ESP_Root_Device_Path = ESPRoot;
+  Loader_block->ESP_Root_Size = ESPRootSize;
+  Loader_block->Kernel_Path = KernelPath;
+  Loader_block->Kernel_Path_Size = KernelPathSize;
+  Loader_block->Kernel_Options = Cmdline;
+  Loader_block->Kernel_Options_Size = CmdlineSize;
 
   Loader_block->RTServices = RT;
   Loader_block->GPU_Configs = Graphics;

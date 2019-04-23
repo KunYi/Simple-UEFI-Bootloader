@@ -25,7 +25,7 @@ included at the end of this file.
 //=============================================================================
 
 All remaining source not covered by a license is released under the following
-license (note the copyright is non-exclusive):
+license:
 
 Copyright (c) 2017-2019 KNNSpeed
 
@@ -46,19 +46,19 @@ just examples: the important point is that the exact original source is
 identified and attributed.
 
 Short:
-// From V1.5 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
+// From V2.0 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Medium:
-// From KNNSpeed's "Simple UEFI Bootloader," V1.5:
+// From KNNSpeed's "Simple UEFI Bootloader," V2.0:
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Long (Recommended):
 // From KNNSpeed's "Simple UEFI Bootloader":
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
-// V1.5, [Date you got it]
+// V2.0, [Date you got it]
 
 The last line of the long form might look like:
-V1.5, April 10, 2019
+V2.0, April 23, 2019
 
 2) THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
