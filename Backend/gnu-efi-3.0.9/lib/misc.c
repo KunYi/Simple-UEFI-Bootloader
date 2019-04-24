@@ -71,10 +71,10 @@ ReallocatePool (
         if (NewPool) {
             CopyMem (NewPool, OldPool, OldSize < NewSize ? OldSize : NewSize);
         }
-    
+
         FreePool (OldPool);
     }
-    
+
     return NewPool;
 }
 
@@ -102,7 +102,7 @@ VOID
 SetMem (
     IN VOID     *Buffer,
     IN UINTN    Size,
-    IN UINT8    Value    
+    IN UINT8    Value
     )
 {
     RtSetMem (Buffer, Size, Value);
@@ -139,7 +139,7 @@ GrowBuffer(
 Routine Description:
 
     Helper function called as part of the code needed
-    to allocate the proper sized buffer for various 
+    to allocate the proper sized buffer for various
     EFI interfaces.
 
 Arguments:
@@ -149,10 +149,10 @@ Arguments:
     Buffer      - Current allocated buffer, or NULL
 
     BufferSize  - Current buffer size needed
-    
+
 Returns:
-    
-    TRUE - if the buffer was reallocated and the caller 
+
+    TRUE - if the buffer was reallocated and the caller
     should try the API again.
 
 --*/
@@ -170,7 +170,7 @@ Returns:
     //
     // If the status code is "buffer too small", resize the buffer
     //
-        
+
     TryAgain = FALSE;
     if (*Status == EFI_BUFFER_TOO_SMALL) {
 
@@ -182,9 +182,9 @@ Returns:
 
         if (*Buffer) {
             TryAgain = TRUE;
-        } else {    
+        } else {
             *Status = EFI_OUT_OF_RESOURCES;
-        } 
+        }
     }
 
     //
@@ -279,7 +279,7 @@ LibGetVariableAndSize (
     }
     return Buffer;
 }
-    
+
 VOID *
 LibGetVariable (
     IN CHAR16               *Name,
@@ -376,7 +376,7 @@ LibInsertToTailOfBootOrder (
     UINTN       Index;
     EFI_STATUS  Status;
 
-    BootOptionArray = LibGetVariableAndSize (VarBootOrder, &EfiGlobalVariable, &VarSize);    
+    BootOptionArray = LibGetVariableAndSize (VarBootOrder, &EfiGlobalVariable, &VarSize);
     if (VarSize != 0 && OnlyInsertIfEmpty) {
         if (BootOptionArray) {
             FreePool (BootOptionArray);
@@ -386,7 +386,7 @@ LibInsertToTailOfBootOrder (
 
     VarSize += sizeof(UINT16);
     NewBootOptionArray = AllocatePool (VarSize);
-    
+
     for (Index = 0; Index < ((VarSize/sizeof(UINT16)) - 1); Index++) {
         NewBootOptionArray[Index] = BootOptionArray[Index];
     }
@@ -429,7 +429,7 @@ ValidMBR(
         // The BPB also has this signature, so it can not be used alone.
         //
         return FALSE;
-    } 
+    }
 
     ValidMbr = FALSE;
     for (i=0; i<MAX_MBR_PARTITIONS; i++) {
@@ -444,8 +444,8 @@ ValidMBR(
             // Compatability Errata:
             //  Some systems try to hide drive space with thier INT 13h driver
             //  This does not hide space from the OS driver. This means the MBR
-            //  that gets created from DOS is smaller than the MBR created from 
-            //  a real OS (NT & Win98). This leads to BlkIo->LastBlock being 
+            //  that gets created from DOS is smaller than the MBR created from
+            //  a real OS (NT & Win98). This leads to BlkIo->LastBlock being
             //  wrong on some systems FDISKed by the OS.
             //
             //
@@ -465,13 +465,13 @@ ValidMBR(
             if (Mbr->Partition[j].OSIndicator == 0x00 || EXTRACT_UINT32(Mbr->Partition[j].SizeInLBA) == 0) {
                 continue;
             }
-            if (   EXTRACT_UINT32(Mbr->Partition[j].StartingLBA) >= StartingLBA && 
+            if (   EXTRACT_UINT32(Mbr->Partition[j].StartingLBA) >= StartingLBA &&
                    EXTRACT_UINT32(Mbr->Partition[j].StartingLBA) <= EndingLBA       ) {
                 //
                 // The Start of this region overlaps with the i'th region
                 //
                 return FALSE;
-            } 
+            }
             NewEndingLBA = EXTRACT_UINT32(Mbr->Partition[j].StartingLBA) + EXTRACT_UINT32(Mbr->Partition[j].SizeInLBA) - 1;
             if ( NewEndingLBA >= StartingLBA && NewEndingLBA <= EndingLBA ) {
                 //
@@ -485,8 +485,8 @@ ValidMBR(
     // Non of the regions overlapped so MBR is O.K.
     //
     return ValidMbr;
-} 
-   
+}
+
 
 UINT8
 DecimaltoBCD(
@@ -536,8 +536,9 @@ LibGetUiString (
     UI_STRING_TYPE  Index;
     UI_STRING_ENTRY *Array;
     EFI_STATUS      Status;
-    
-    Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &UiProtocol, (VOID *)&Ui);
+
+//    Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &UiProtocol, (VOID *)&Ui); // Legacy EFI 1.0 version
+    Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handle, &UiProtocol, (VOID *)&Ui, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // UEFI 2.x version
     if (EFI_ERROR(Status)) {
         return (ReturnDevicePathStrOnMismatch) ? DevicePathToStr(DevicePathFromHandle(Handle)) : NULL;
     }
@@ -556,7 +557,7 @@ LibGetUiString (
     //
     while (Array->LangCode) {
         if (strcmpa (Array->LangCode, LangCode) == 0) {
-            return Array->UiString; 
+            return Array->UiString;
         }
     }
     return (ReturnDevicePathStrOnMismatch) ? DevicePathToStr(DevicePathFromHandle(Handle)) : NULL;

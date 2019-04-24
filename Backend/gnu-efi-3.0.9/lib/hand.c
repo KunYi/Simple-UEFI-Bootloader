@@ -32,7 +32,7 @@ LibLocateProtocol (
     UINTN           NumberHandles, Index;
     EFI_HANDLE      *Handles;
 
-    
+
     *Interface = NULL;
     Status = LibLocateHandle (ByProtocol, ProtocolGuid, NULL, &NumberHandles, &Handles);
     if (EFI_ERROR(Status)) {
@@ -41,7 +41,8 @@ LibLocateProtocol (
     }
 
     for (Index=0; Index < NumberHandles; Index++) {
-        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], ProtocolGuid, Interface);
+//        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], ProtocolGuid, Interface); // Legacy EFI 1.0 version
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handles[Index], ProtocolGuid, Interface, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // UEFI 2.x version
         if (!EFI_ERROR(Status)) {
             break;
         }
@@ -158,7 +159,7 @@ LibLocateHandleByDiskSignature (
     }
 
     //
-    // If there was an error or there are no device handles that support 
+    // If there was an error or there are no device handles that support
     // the BLOCK_IO Protocol, then return.
     //
 
@@ -176,14 +177,27 @@ LibLocateHandleByDiskSignature (
     *NoHandles = 0;
 
     for(Index=0;Index<NoBlockIoHandles;Index++) {
-
+/* // Legacy EFI 1.0 version
         Status = uefi_call_wrapper(
-				     BS->HandleProtocol, 
+				     BS->HandleProtocol,
 					3,
-				     BlockIoBuffer[Index], 
-                                     &DevicePathProtocol, 
+				     BlockIoBuffer[Index],
+                                     &DevicePathProtocol,
                                      (VOID*)&DevicePath
                                      );
+*/
+// UEFI 2.x version
+         Status = uefi_call_wrapper(
+ 				     BS->OpenProtocol,
+ 					6,
+ 				     BlockIoBuffer[Index],
+                                      &DevicePathProtocol,
+                                      (VOID*)&DevicePath,
+                                      NULL,
+                                      NULL,
+                                      EFI_OPEN_PROTOCOL_GET_PROTOCOL
+                                      );
+
 
         //
         // Search DevicePath for a Hard Drive Media Device Path node.
@@ -203,7 +217,7 @@ LibLocateHandleByDiskSignature (
 
             //
             // Check for end of device path type
-            //    
+            //
 
             for (; ;) {
 
@@ -309,10 +323,11 @@ LibOpenRoot (
     // File the file system interface to the device
     //
 
-    Status = uefi_call_wrapper(BS->HandleProtocol, 3, DeviceHandle, &FileSystemProtocol, (VOID*)&Volume);
+//    Status = uefi_call_wrapper(BS->HandleProtocol, 3, DeviceHandle, &FileSystemProtocol, (VOID*)&Volume); // Legacy EFI 1.0 version
+    Status = uefi_call_wrapper(BS->OpenProtocol, 6, DeviceHandle, &FileSystemProtocol, (VOID*)&Volume, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // UEFI 2.x version
 
     //
-    // Open the root directory of the volume 
+    // Open the root directory of the volume
     //
 
     if (!EFI_ERROR(Status)) {
@@ -361,7 +376,7 @@ LibFileInfo (
     return Buffer;
 }
 
-    
+
 EFI_FILE_SYSTEM_INFO *
 LibFileSystemInfo (
     IN EFI_FILE_HANDLE      FHand
@@ -432,7 +447,7 @@ LibFileSystemVolumeLabelInfo (
     return Buffer;
 }
 
-    
+
 
 EFI_STATUS
 LibInstallProtocolInterfaces (
@@ -450,7 +465,7 @@ LibInstallProtocolInterfaces (
 
     //
     // Syncronize with notifcations
-    // 
+    //
 
     OldTpl = uefi_call_wrapper(BS->RaiseTPL, 1, TPL_NOTIFY);
     OldHandle = *Handle;
@@ -503,7 +518,7 @@ LibInstallProtocolInterfaces (
             uefi_call_wrapper(BS->UninstallProtocolInterface, 3, *Handle, Protocol, Interface);
 
             Index -= 1;
-        }        
+        }
 
         *Handle = OldHandle;
     }
@@ -528,7 +543,7 @@ LibUninstallProtocolInterfaces (
     EFI_GUID        *Protocol;
     VOID            *Interface;
 
-    
+
     va_start (args, Handle);
     for (; ;) {
 
@@ -552,7 +567,7 @@ LibUninstallProtocolInterfaces (
             DEBUG((D_ERROR, "LibUninstallProtocolInterfaces: failed %g, %r\n", Protocol, Handle));
         }
     }
-}    
+}
 
 
 EFI_STATUS
@@ -570,7 +585,7 @@ LibReinstallProtocolInterfaces (
 
     //
     // Syncronize with notifcations
-    // 
+    //
 
     OldTpl = uefi_call_wrapper(BS->RaiseTPL, 1, TPL_NOTIFY);
 
@@ -624,7 +639,7 @@ LibReinstallProtocolInterfaces (
             uefi_call_wrapper(BS->ReinstallProtocolInterface, 4, Handle, Protocol, NewInterface, OldInterface);
 
             Index -= 1;
-        }        
+        }
     }
 
     //

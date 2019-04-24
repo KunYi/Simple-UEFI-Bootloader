@@ -70,6 +70,7 @@ Returns:
         //
 
         if (ImageHandle) {
+/* // This is an EFI 1.0 function.
             Status = uefi_call_wrapper(
                 BS->HandleProtocol,
                 3,
@@ -77,6 +78,18 @@ Returns:
                 &LoadedImageProtocol,
                 (VOID*)&LoadedImage
             );
+*/
+// This is a UEFI 2.x function
+              Status = uefi_call_wrapper(
+                  BS->OpenProtocol,
+                  6,
+                  ImageHandle,
+                  &LoadedImageProtocol,
+                  (VOID*)&LoadedImage,
+                  NULL,
+                  NULL,
+                  EFI_OPEN_PROTOCOL_GET_PROTOCOL
+              );
 
             if (!EFI_ERROR(Status)) {
                 PoolAllocationType = LoadedImage->ImageDataType;
@@ -132,7 +145,9 @@ InitializeUnicodeSupport (
     //
 
     for (Index=0; Index < NoHandles; Index++) {
-        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], &UnicodeCollationProtocol, (VOID*)&Ui);
+
+//        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], &UnicodeCollationProtocol, (VOID*)&Ui); // Let's use a UEFI 2.x function for this.
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handles[Index], &UnicodeCollationProtocol, (VOID*)&Ui, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
         if (EFI_ERROR(Status)) {
             continue;
         }

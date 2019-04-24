@@ -36,7 +36,8 @@ DevicePathFromHandle (
     EFI_STATUS          Status;
     EFI_DEVICE_PATH     *DevicePath;
 
-    Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &DevicePathProtocol, (VOID*)&DevicePath);
+//    Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &DevicePathProtocol, (VOID*)&DevicePath); // Let's not use EFI 1.02 functions.
+    Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handle, &DevicePathProtocol, (VOID*)&DevicePath, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
     if (EFI_ERROR(Status)) {
         DevicePath = NULL;
     }
@@ -455,7 +456,8 @@ LibDevicePathToInterface (
             // It was a direct match, lookup the protocol interface
             //
 
-            Status =uefi_call_wrapper(BS->HandleProtocol, 3, Device, Protocol, Interface);
+//            Status = uefi_call_wrapper(BS->HandleProtocol, 3, Device, Protocol, Interface); // Legacy EFI 1.0 version
+            Status = uefi_call_wrapper(BS->OpenProtocol, 6, Device, Protocol, Interface, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // UEFI 2.x version
         }
     }
 

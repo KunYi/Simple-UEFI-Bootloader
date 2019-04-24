@@ -1,7 +1,7 @@
 # Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications. Looking for the ARM64 version? Get it here: https://github.com/KNNSpeed/Simple-UEFI-Bootloader-ARM64  
 
-**Version 2.0**
+**Version 2.1**
 
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
 
@@ -63,7 +63,7 @@ Note that each of these files already has appropriate crediting at the top, so y
 
     NOTE: You should be sure your system supports booting from external media if you are using a USB drive, and ensure that the system is not configured to boot in Legacy or BIOS mode (i.e. it has UEFI booting enabled). Also, spaces in file/folder names are not allowed.
 
-That's it! If your Kernel64 file's entry point function is something like **main_function(LOADER_PARAMS * LP)**, it should load after you select how you want your graphics output device(s) configured. See https://github.com/KNNSpeed/Simple-Kernel for an example, including proper compilation options.
+That's it! If your kernel file's entry point function is something like **main_function(LOADER_PARAMS * LP)**, it should load after you select how you want your graphics output device(s) configured. See https://github.com/KNNSpeed/Simple-Kernel for an example, including proper compilation options.
 
 ### Kernel64.txt Format and Contents
 
@@ -149,6 +149,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
 
 ## Change Log
+
+V2.1 (4/24/2019) - Fixed a regression introduced in V1.4 (it isn't a bug with this code, it's a widespread issue with UEFI firmware): The ClearScreen function, which is just supposed to clear the screen to whatever the background color is and reset the cursor to (0,0), behaves wildly differently depending on firmware. Some video drivers don't reset cursor position, some do a whole video mode reset and set the video mode to 0, effectively destroying any other mode previously set, and some actually work correctly. I forgot about this and left calls to ClearScreen in, but they're gone now. An extra newline now takes the place of where ClearScreen use to be used. Also updated backend GNU-EFI to use the UEFI 2.x OpenProtocol() function instead of the now-archaic EFI 1.0 HandleProtocol() function (this loader was never intended on EFI 1.x devices anyway).
 
 V2.0 (4/23/2019) - Added the need for Kernel64.txt in the same style as Kernelcmd.txt from V2.x of https://github.com/KNNSpeed/UEFI-Stub-Loader. With this major change, kernels don't need to be named Kernel64 anymore, a string of load options can be passed to kernels, and multi-booting on one machine is supported by way of using the machine's built-in UEFI boot manager. How to format Kernel64.txt has been added to both this document and the usage information in "Releases." Also added new loader params: ESP_Root_Device_Path, ESP_Root_Size, Kernel_Path, Kernel_Path_Size, Kernel_Options, Kernel_Options_Size.
 

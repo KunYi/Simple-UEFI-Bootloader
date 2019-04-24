@@ -61,7 +61,8 @@ Returns:
 
     Status = uefi_call_wrapper(BS->LocateDevicePath, 3, &DeviceIoProtocol, &DevicePath, &Handle);
     if (!EFI_ERROR(Status)) {
-        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &DeviceIoProtocol, (VOID*)GlobalIoFncs);
+//        Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &DeviceIoProtocol, (VOID*)GlobalIoFncs); // Legacy EFI 1.0 version
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handle, &DeviceIoProtocol, (VOID*)GlobalIoFncs, NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL); // UEFI 2.x version
     }
 
     ASSERT (!EFI_ERROR(Status));
@@ -127,6 +128,3 @@ WritePciConfig (
     ASSERT(!EFI_ERROR(Status));
     return (UINT32)Data;
 }
-
-
-

@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 2.0
+// Version 2.1
 //
 // Author:
 //  KNNSpeed
@@ -2455,11 +2455,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   Print(L"Loader block allocated, size of structure: %llu\r\n", sizeof(LOADER_PARAMS));
   Keywait(L"About to get MemMap and exit boot services...\r\n");
 #endif
-
-  // Hm... This appears to also reset the video mode to mode 0...
-  // Clear screen while we still have EFI services
-  // ST->ConOut->ClearScreen(ST->ConOut);
-  // Eh, this won't matter once debug statements are turned off, anyways, since the only time user input is required is before GOP SetMode
 
  //----------------------------------------------------------------------------------------------------------------------------------
  //  Get Memory Map and Exit Boot Services
