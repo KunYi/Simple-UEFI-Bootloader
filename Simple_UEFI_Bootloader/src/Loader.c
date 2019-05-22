@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 2.1
+// Version 2.2
 //
 // Author:
 //  KNNSpeed
@@ -22,7 +22,7 @@
 // Load Kernel (64-bit PE32+, ELF, or Mach-O), exit boot services, and jump to the entry point of kernel file
 //
 
-EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable)
+EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATION_TABLE * SysCfgTables, UINTN NumSysCfgTables, UINT32 UEFIVer)
 {
 #ifdef GOP_DEBUG_ENABLED
   // Integrity check
@@ -128,7 +128,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   {
     if(BootFilePath[BootFilePathLength] == L'\\')
     {
-      TxtFilePathPrefixLength = BootFilePathLength;
+      TxtFilePathPrefixLength = BootFilePathLength; // Could use ++BootFilePathLength here instead of the two separate += below, but it's less clear and it doesn't make any meaningful difference to do so.
     }
     BootFilePathLength++;
   }
@@ -744,7 +744,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 }
                 else if(NewAddress >= 0x100000000) // Need to stay under 4GB for PE32+
                 {
-                  NewAddress = -1;
+                  NewAddress = ~0ULL;
                 }
               }
               else if(EFI_ERROR(GoTimeStatus))
@@ -753,7 +753,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -771,7 +771,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -801,7 +801,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -815,7 +815,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                     }
                     else if(NewAddress >= 0x100000000) // Need to stay under 4GB
                     {
-                      NewAddress = -1; // Get out of this loop, do a more thorough check
+                      NewAddress = ~0ULL; // Get out of this loop, do a more thorough check
                       break;
                     }
                     // This loop will run until we get a good address (shouldn't be more than once, if ever)
@@ -841,7 +841,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -885,7 +885,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -949,7 +949,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(NewAddress == -1)
+                    if(NewAddress == ~0ULL)
                     {
                       // Well, darn. Something's up with the system memory. Maybe you have 4GB or less?
                       Print(L"Do you have 4GB or less of RAM? Looks like you need > 4GB for this.\r\nThat also means you'll need to use 64-bit ELF or MACH-O kernels.\r\n");
@@ -1371,7 +1371,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
         UINT64 i; // Iterator
         UINT64 virt_size = 0; // Virtual address max
-        UINT64 virt_min = -1; // Minimum virtual address for page number calculation, -1 wraps around to max 64-bit number
+        UINT64 virt_min = ~0ULL; // Minimum virtual address for page number calculation, -1 wraps around to max 64-bit number
         UINT64 Numofprogheaders = (UINT64)ELF64header.e_phnum;
         size = Numofprogheaders*(UINT64)ELF64header.e_phentsize; // Size of all program headers combined
 
@@ -1524,7 +1524,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -1542,7 +1542,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -1572,7 +1572,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -1608,7 +1608,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -1648,7 +1648,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -1708,7 +1708,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(AllocatedMemory == -1)
+                    if(AllocatedMemory == ~0ULL)
                     {
                       // Well, darn. Something's up with the system memory.
                       return GoTimeStatus;
@@ -1889,7 +1889,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
         UINT64 i; // Iterator
         UINT64 virt_size = 0;
-        UINT64 virt_min = -1; // Wraps around to max 64-bit number
+        UINT64 virt_min = ~0ULL; // Wraps around to max 64-bit number
         UINT64 Numofcommands = (UINT64)MACheader.ncmds;
         //load_command load_commands_table[Numofcommands]; // commands are variably sized.
         size = (UINT64)MACheader.sizeofcmds; // Size of all commands combined. Well, that's convenient!
@@ -2059,7 +2059,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -2077,7 +2077,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -2107,7 +2107,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -2143,7 +2143,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -2183,7 +2183,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -2244,7 +2244,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(AllocatedMemory == -1)
+                    if(AllocatedMemory == ~0ULL)
                     {
                       // Well, darn. Something's up with the system memory.
                       return GoTimeStatus;
@@ -2438,8 +2438,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     Keywait(L"\0");
   }
 
-  Print(L"RSDP address: 0x%llx\r\n", RSDPTable);
-  Print(L"Data at RSDP (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(RSDPTable + 8), *(EFI_PHYSICAL_ADDRESS*)RSDPTable);
+  Print(L"Config table address: 0x%llx\r\n", ST->ConfigurationTable);
 #endif
 
   // Reserve memory for the loader block
@@ -2568,33 +2567,36 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 /*
   // Loader block defined in header
   typedef struct {
-    UINT16                  Bootloader_MajorVersion;
-    UINT16                  Bootloader_MinorVersion;
+    UINT32                    UEFI_Version;                   // The system UEFI version
+    UINT32                    Bootloader_MajorVersion;        // The major version of the bootloader
+    UINT32                    Bootloader_MinorVersion;        // The minor version of the bootloader
 
-    UINT32                  Memory_Map_Descriptor_Version;
-    UINTN                   Memory_Map_Descriptor_Size;
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;
-    UINTN                   Memory_Map_Size;
+    UINT32                    Memory_Map_Descriptor_Version;  // The memory descriptor version
+    UINTN                     Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
+    EFI_MEMORY_DESCRIPTOR    *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    UINTN                     Memory_Map_Size;                // The total size of the system memory map
 
-    EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;
-    UINTN                   Kernel_Pages;
+    EFI_PHYSICAL_ADDRESS      Kernel_BaseAddress;             // The base memory address of the loaded kernel file
+    UINTN                     Kernel_Pages;                   // The number of pages (1 page == 4096 bytes) allocated for the kernel file
 
-    CHAR16                 *ESP_Root_Device_Path;
-    UINT64                  ESP_Root_Size;
-    CHAR16                 *Kernel_Path;
-    UINT64                  Kernel_Path_Size;
-    CHAR16                 *Kernel_Options;
-    UINT64                  Kernel_Options_Size;
+    CHAR16                   *ESP_Root_Device_Path;           // A UTF-16 string containing the drive root of the EFI System Partition as converted from UEFI device path format
+    UINT64                    ESP_Root_Size;                  // The size (in bytes) of the above ESP root string
+    CHAR16                   *Kernel_Path;                    // A UTF-16 string containing the kernel's file path relative to the EFI System Partition root (it's the first line of Kernel64.txt)
+    UINT64                    Kernel_Path_Size;               // The size (in bytes) of the above kernel file path
+    CHAR16                   *Kernel_Options;                 // A UTF-16 string containing various load options (it's the second line of Kernel64.txt)
+    UINT64                    Kernel_Options_Size;            // The size (in bytes) of the above load options string
 
-    EFI_RUNTIME_SERVICES   *RTServices;
-    GPU_CONFIG             *GPU_Configs;
-    EFI_FILE_INFO          *FileMeta;
-    void                   *RSDP;
+    EFI_RUNTIME_SERVICES     *RTServices;                     // UEFI Runtime Services
+    GPU_CONFIG               *GPU_Configs;                    // Information about available graphics output devices; see below GPU_CONFIG struct for details
+    EFI_FILE_INFO            *FileMeta;                       // Kernel file metadata
+
+    EFI_CONFIGURATION_TABLE  *ConfigTables;                   // UEFI-installed system configuration tables (ACPI, SMBIOS, etc.)
+    UINTN                     Number_of_ConfigTables;         // The number of system configuration tables
   } LOADER_PARAMS;
 */
 
   // This shouldn't modify the memory map.
-
+  Loader_block->UEFI_Version = UEFIVer;
   Loader_block->Bootloader_MajorVersion = MAJOR_VER;
   Loader_block->Bootloader_MinorVersion = MINOR_VER;
 
@@ -2616,7 +2618,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   Loader_block->RTServices = RT;
   Loader_block->GPU_Configs = Graphics;
   Loader_block->FileMeta = FileInfo;
-  Loader_block->RSDP = RSDPTable;
+
+  Loader_block->ConfigTables = SysCfgTables;
+  Loader_block->Number_of_ConfigTables = NumSysCfgTables;
 
   // Jump to entry point, and WE ARE LIVE!!
   if(KernelisPE)

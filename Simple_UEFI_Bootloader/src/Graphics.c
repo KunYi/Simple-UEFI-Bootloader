@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Graphics Functions
 //==================================================================================================================================
 //
-// Version 2.1
+// Version 2.2
 //
 // Author:
 //  KNNSpeed
@@ -14,6 +14,8 @@
 //
 
 #include "Bootloader.h"
+
+#define GPU_MENU_TIMEOUT_SECONDS 90
 
 //==================================================================================================================================
 //  InitUEFI_GOP: Graphics Initialization
@@ -809,8 +811,11 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   if(NumHandlesInHandleBuffer > 1)
   {
     // Using this as the choice holder
-    // This sets the default option... Which doesn't really matter since there's no timer on this menu :/
+    // This sets the default option.
     DevNum = 2;
+    UINT64 timeout_seconds = GPU_MENU_TIMEOUT_SECONDS;
+    // FYI: The EFI watchdog has something like a 5 minute timeout before it resets the system if ExitBootServices() hasn't been reached.
+    // Not all systems have a watchdog enabled, but enough do that knowing about the watchdog (and assuming there's always one) is useful.
 
     // User selection
     while(0x30 > Key.UnicodeChar || Key.UnicodeChar > 0x33)
@@ -821,20 +826,51 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       }
       Print(L"\r\n");
 
-      Print(L"Configure all or configure one?\r\n");
+      Print(L"Configure all graphics devices or just one?\r\n");
       Print(L"0. Configure all individually\r\n");
       Print(L"1. Configure one\r\n");
       Print(L"2. Configure all to use default resolutions of active displays (usually native)\r\n");
       Print(L"3. Configure all to use 1024x768\r\n");
-      Print(L"\r\nNote: The \"active display(s)\" on a GPU are determined by the GPU's firmware, and not all output ports may be currently active.\r\n");
-      Print(L"\r\nPlease select an option.\r\n");
+      Print(L"\r\nNote: The \"active display(s)\" on a GPU are determined by the GPU's firmware, and not all output ports may be currently active.\r\n\n");
 
-      while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
+      while(timeout_seconds)
+      {
+        Print(L"Please select an option. Defaulting to option %llu in %llu... \r", DevNum, timeout_seconds);
+        GOPStatus = WaitForSingleEvent(ST->ConIn->WaitForKey, 10000000); // Timeout units are 100ns
+        if(GOPStatus != EFI_TIMEOUT)
+        {
+          GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key);
+          if (EFI_ERROR(GOPStatus))
+          {
+            Print(L"\nError reading keystroke. 0x%llx\r\n", GOPStatus);
+            return GOPStatus;
+          }
 
-      Print(L"\r\nOption %c selected.\r\n\n", Key.UnicodeChar);
+          Print(L"\n\nOption %c selected.\r\n\n", Key.UnicodeChar);
+          break;
+        }
+        timeout_seconds -= 1;
+      }
+
+      if(!timeout_seconds)
+      {
+        Print(L"\n\nDefaulting to option %llu...\r\n\n", DevNum);
+        break;
+      }
     }
-    DevNum = (UINT64)(Key.UnicodeChar - 0x30); // Convert user input character from unicode to number
+
+    if(timeout_seconds) // Only update DevNum if the loop ended due to a keypress. The loop won't have exited with time remaining without a valid key pressed.
+    {
+      DevNum = (UINT64)(Key.UnicodeChar - 0x30); // Convert user input character from unicode to number
+    }
+
     Key.UnicodeChar = 0; // Reset input
+    GOPStatus = ST->ConIn->Reset(ST->ConIn, FALSE); // Reset input buffer
+    if (EFI_ERROR(GOPStatus))
+    {
+      Print(L"Error resetting input buffer. 0x%llx\r\n", GOPStatus);
+      return GOPStatus;
+    }
   }
 
   if((NumHandlesInHandleBuffer > 1) && (DevNum == 0))
@@ -928,7 +964,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
           Print(L"%u available graphics modes found.\r\n\n", GOPTable->Mode->MaxMode);
 
-          Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
+          Print(L"Current Mode: %c\r\n", GOPTable->Mode->Mode + 0x30);
           for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
           {
             GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -948,7 +984,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
             }
           }
 
-          Print(L"\r\nPlease select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+          Print(L"\r\nPlease select a graphics mode. (0 - %c)\r\n", 0x30 + GOPTable->Mode->MaxMode - 1);
 
           while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
 
@@ -957,7 +993,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         mode = (UINT32)(Key.UnicodeChar - 0x30);
         Key.UnicodeChar = 0;
 
-        Print(L"Setting graphics mode %u of %u.\r\n\n", mode, GOPTable->Mode->MaxMode - 1);
+        Print(L"Setting graphics mode %u of %u.\r\n\n", mode + 1, GOPTable->Mode->MaxMode);
       }
 
       // Set mode
@@ -1102,7 +1138,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
         Print(L"%u available graphics modes found.\r\n\n", GOPTable->Mode->MaxMode);
 
-        Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
+        Print(L"Current Mode: %c\r\n", GOPTable->Mode->Mode + 0x30);
         for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
         {
           GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -1122,7 +1158,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
           }
         }
 
-        Print(L"\r\nPlease select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+        Print(L"\r\nPlease select a graphics mode. (0 - %c)\r\n", 0x30 + GOPTable->Mode->MaxMode - 1);
 
         while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
 
@@ -1131,7 +1167,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       mode = (UINT32)(Key.UnicodeChar - 0x30);
       Key.UnicodeChar = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
+      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
     }
 
     // Set mode
@@ -1215,7 +1251,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       // Set mode 0
       mode = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
+      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
 
       // Set mode
       // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
@@ -1336,7 +1372,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         mode = 0;
       }
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
+      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
 
       // Set mode
       // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
@@ -1388,6 +1424,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
   {
     // Single GPU
     // NOTE: If there's only 1 available mode for a given device, this will just auto-set its output to that; no need for explicit choice there.
+    // Similarly, this single GPU case is the only one that has a timeout on its resolution menu. Muti-GPU options 0 and 1 assume the user is present to use them--there's no other way to get to them! (Multi-GPU options 2 and 3 are automatic modes, so they don't have menus.)
 
     // Setup
     Graphics->NumberOfFrameBuffers = 1;
@@ -1460,6 +1497,10 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     }
     else
     {
+      // Default mode
+      UINT32 default_mode = 0;
+      UINT64 timeout_seconds = GPU_MENU_TIMEOUT_SECONDS;
+
       // Get supported graphics modes
       EFI_GRAPHICS_OUTPUT_MODE_INFORMATION *GOPInfo2; // Querymode allocates GOPInfo
       while(0x30 > Key.UnicodeChar || Key.UnicodeChar > (0x30 + GOPTable->Mode->MaxMode - 1))
@@ -1469,7 +1510,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
         Print(L"%u available graphics modes found.\r\n\n", GOPTable->Mode->MaxMode);
 
-        Print(L"Current Mode: %u\r\n", GOPTable->Mode->Mode);
+        Print(L"Current Mode: %c\r\n", GOPTable->Mode->Mode + 0x30);
         for(mode = 0; mode < GOPTable->Mode->MaxMode; mode++) // Valid modes are from 0 to MaxMode - 1
         {
           GOPStatus = GOPTable->QueryMode(GOPTable, mode, &GOPInfoSize, &GOPInfo2); // IN IN OUT OUT
@@ -1488,17 +1529,42 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
             return GOPStatus;
           }
         }
+        Print(L"\r\n");
 
-        Print(L"\r\nPlease select a graphics mode. (0 - %u)\r\n", GOPTable->Mode->MaxMode - 1);
+        while(timeout_seconds)
+        {
+          Print(L"Please select a graphics mode. (0 - %c). Defaulting to mode %c in %llu... \r", 0x30 + GOPTable->Mode->MaxMode - 1, default_mode + 0x30, timeout_seconds);
+          GOPStatus = WaitForSingleEvent(ST->ConIn->WaitForKey, 10000000); // Timeout units are 100ns
+          if(GOPStatus != EFI_TIMEOUT)
+          {
+            GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key);
+            if (EFI_ERROR(GOPStatus))
+            {
+              Print(L"\nError reading keystroke. 0x%llx\r\n", GOPStatus);
+              return GOPStatus;
+            }
 
-        while ((GOPStatus = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key)) == EFI_NOT_READY);
+            Print(L"\n\nSelected graphics mode %c.\r\n\n", Key.UnicodeChar);
+            break;
+          }
+          timeout_seconds -= 1;
+        }
 
-        Print(L"\r\nSelected graphics mode %c.\r\n\n", Key.UnicodeChar);
+        if(!timeout_seconds)
+        {
+          Print(L"\n\nDefaulting to mode %c...\r\n\n", default_mode + 0x30);
+          mode = default_mode;
+          break;
+        }
       }
-      mode = (UINT32)(Key.UnicodeChar - 0x30);
+
+      if(timeout_seconds) // Only update mode if the loop ended due to a keypress. The loop won't have exited with time remaining without a valid key pressed.
+      {
+        mode = (UINT32)(Key.UnicodeChar - 0x30);
+      }
       Key.UnicodeChar = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode, GOPTable->Mode->MaxMode - 1);
+      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
     }
 
     // Set mode

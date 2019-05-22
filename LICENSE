@@ -46,19 +46,19 @@ just examples: the important point is that the exact original source is
 identified and attributed.
 
 Short:
-// From V2.1 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
+// From V2.2 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Medium:
-// From KNNSpeed's "Simple UEFI Bootloader," V2.1:
+// From KNNSpeed's "Simple UEFI Bootloader," V2.2:
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Long (Recommended):
 // From KNNSpeed's "Simple UEFI Bootloader":
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
-// V2.1, [Date you got it]
+// V2.2, [Date you got it]
 
 The last line of the long form might look like:
-V2.1, April 24, 2019
+V2.2, May 21, 2019
 
 2) THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,

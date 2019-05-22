@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Memory Functions
 //==================================================================================================================================
 //
-// Version 2.1
+// Version 2.2
 //
 // Author:
 //  KNNSpeed
@@ -81,14 +81,14 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddress MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return -1;
+      return ~0ULL;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddress. 0x%llx\r\n", memmap_status);
-    return -1;
+    return ~0ULL;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -109,7 +109,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
 #ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses...\r\n");
 #endif
-    return -1;
+    return ~0ULL;
   }
 
   memmap_status = BS->FreePool(MemMap);
@@ -146,14 +146,14 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddressByPage MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return -1;
+      return ~0ULL;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddressByPage. 0x%llx\r\n", memmap_status);
-    return -1;
+    return ~0ULL;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -187,7 +187,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
 #ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses by page...\r\n");
 #endif
-    return -1;
+    return ~0ULL;
   }
 
   memmap_status = BS->FreePool(MemMap);

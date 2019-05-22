@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Bootloader Entrypoint
 //==================================================================================================================================
 //
-// Version 2.1
+// Version 2.2
 //
 // Author:
 //  KNNSpeed
@@ -18,28 +18,30 @@
 // It loads programs specified by Kernel64.txt and passes the following structure to them:
 /*
   typedef struct {
-    UINT16                  Bootloader_MajorVersion;        // The major version of the bootloader
-    UINT16                  Bootloader_MinorVersion;        // The minor version of the bootloader
+    UINT32                    UEFI_Version;                   // The system UEFI version
+    UINT32                    Bootloader_MajorVersion;        // The major version of the bootloader
+    UINT32                    Bootloader_MinorVersion;        // The minor version of the bootloader
 
-    UINT32                  Memory_Map_Descriptor_Version;  // The memory descriptor version
-    UINTN                   Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
-    UINTN                   Memory_Map_Size;                // The total size of the system memory map
+    UINT32                    Memory_Map_Descriptor_Version;  // The memory descriptor version
+    UINTN                     Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
+    EFI_MEMORY_DESCRIPTOR    *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    UINTN                     Memory_Map_Size;                // The total size of the system memory map
 
-    EFI_PHYSICAL_ADDRESS    Kernel_BaseAddress;             // The base memory address of the loaded kernel file
-    UINTN                   Kernel_Pages;                   // The number of pages (1 page == 4096 bytes) allocated for the kernel file
+    EFI_PHYSICAL_ADDRESS      Kernel_BaseAddress;             // The base memory address of the loaded kernel file
+    UINTN                     Kernel_Pages;                   // The number of pages (1 page == 4096 bytes) allocated for the kernel file
 
-    CHAR16                 *ESP_Root_Device_Path;           // A UTF-16 string containing the drive root of the EFI System Partition as converted from UEFI device path format
-    UINT64                  ESP_Root_Size;                  // The size (in bytes) of the above ESP root string
-    CHAR16                 *Kernel_Path;                    // A UTF-16 string containing the kernel's file path relative to the EFI System Partition root (it's the first line of Kernel64.txt)
-    UINT64                  Kernel_Path_Size;               // The size (in bytes) of the above kernel file path
-    CHAR16                 *Kernel_Options;                 // A UTF-16 string containing various load options (it's the second line of Kernel64.txt)
-    UINT64                  Kernel_Options_Size;            // The size (in bytes) of the above load options string
+    CHAR16                   *ESP_Root_Device_Path;           // A UTF-16 string containing the drive root of the EFI System Partition as converted from UEFI device path format
+    UINT64                    ESP_Root_Size;                  // The size (in bytes) of the above ESP root string
+    CHAR16                   *Kernel_Path;                    // A UTF-16 string containing the kernel's file path relative to the EFI System Partition root (it's the first line of Kernel64.txt)
+    UINT64                    Kernel_Path_Size;               // The size (in bytes) of the above kernel file path
+    CHAR16                   *Kernel_Options;                 // A UTF-16 string containing various load options (it's the second line of Kernel64.txt)
+    UINT64                    Kernel_Options_Size;            // The size (in bytes) of the above load options string
 
-    EFI_RUNTIME_SERVICES   *RTServices;                     // UEFI Runtime Services
-    GPU_CONFIG             *GPU_Configs;                    // Information about available graphics output devices; see below GPU_CONFIG struct for details
-    EFI_FILE_INFO          *FileMeta;                       // Kernel file metadata
-    void                   *RSDP;                           // A pointer to the RSDP ACPI table
+    EFI_RUNTIME_SERVICES     *RTServices;                     // UEFI Runtime Services
+    GPU_CONFIG               *GPU_Configs;                    // Information about available graphics output devices; see below GPU_CONFIG struct for details
+    EFI_FILE_INFO            *FileMeta;                       // Kernel file metadata
+    EFI_CONFIGURATION_TABLE  *ConfigTables;                   // UEFI-installed system configuration tables (ACPI, SMBIOS, etc.)
+    UINTN                     Number_of_ConfigTables;         // The number of system configuration tables
   } LOADER_PARAMS;
 */
 //
@@ -180,46 +182,97 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     return Status;
   }
 
-  Print(L"%02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Now.Month, Now.Day, Now.Year, Now.Hour, Now.Minute, Now.Second, Now.Nanosecond); // GNU-EFI apparently has a print function for time... Oh well.
+  Print(L"%02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n\n", Now.Month, Now.Day, Now.Year, Now.Hour, Now.Minute, Now.Second, Now.Nanosecond); // GNU-EFI apparently has a print function for time... Oh well.
 #ifdef MAIN_DEBUG_ENABLED
   #ifdef MEMORY_DEBUG_ENABLED // Very slow memory debug version
-    Print(L"Simple UEFI Bootloader - V%d.%d DEBUG (Memory)\r\n", MAJOR_VER, MINOR_VER);
+    Print(L"Simple UEFI Bootloader - V%u.%u DEBUG (Memory)\r\n", MAJOR_VER, MINOR_VER);
   #else // Standard debug version
-    Print(L"Simple UEFI Bootloader - V%d.%d DEBUG\r\n", MAJOR_VER, MINOR_VER);
+    Print(L"Simple UEFI Bootloader - V%u.%u DEBUG\r\n", MAJOR_VER, MINOR_VER);
   #endif
 #else
   #ifdef FINAL_LOADER_DEBUG_ENABLED // Lite debug version
-    Print(L"Simple UEFI Bootloader - V%d.%d DEBUG (Lite)\r\n", MAJOR_VER, MINOR_VER);
+    Print(L"Simple UEFI Bootloader - V%u.%u DEBUG (Lite)\r\n", MAJOR_VER, MINOR_VER);
   #else // Release version
-    Print(L"Simple UEFI Bootloader - V%d.%d\r\n", MAJOR_VER, MINOR_VER);
+    Print(L"Simple UEFI Bootloader - V%u.%u\r\n", MAJOR_VER, MINOR_VER);
   #endif
 #endif
   Print(L"Copyright (c) 2017-2019 KNNSpeed\r\n\n");
+  Print(L"For software licensing information and related usage terms, please refer to the LICENSE file found at https://github.com/KNNSpeed/Simple-UEFI-Bootloader.\r\n\n");
+
+  UINT64 timeout_seconds = 10; // 10 seconds
+  EFI_INPUT_KEY Key_Check = {0};
+
+  while(timeout_seconds)
+  {
+    Print(L"Continuing in %llu, press 's' to stop timer or press any other key to continue. \r", timeout_seconds);
+    Status = WaitForSingleEvent(ST->ConIn->WaitForKey, 10000000); // Timeout units are 100ns
+    if(Status != EFI_TIMEOUT)
+    {
+      Status = ST->ConIn->ReadKeyStroke(ST->ConIn, &Key_Check);
+      if (EFI_ERROR(Status))
+      {
+        Print(L"\nError reading keystroke. 0x%llx\r\n", Status);
+        return Status;
+      }
+
+      if(Key_Check.UnicodeChar == L's')
+      {
+        Keywait(L"\nTimer stopped. ");
+      }
+      else
+      {
+        Print(L"\n");
+        Status = ST->ConIn->Reset(ST->ConIn, FALSE);
+        if (EFI_ERROR(Status))
+        {
+          Print(L"Error resetting input buffer. 0x%llx\r\n", Status);
+          return Status;
+        }
+      }
+
+      break;
+    }
+    timeout_seconds -= 1;
+  }
+  if(!timeout_seconds)
+  {
+    Print(L"\n");
+  }
+  Print(L"\r\n");
 
 #ifdef MAIN_DEBUG_ENABLED
-  Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\nHeader Size: %u Bytes\r\nCRC32: 0x%08x\r\nReserved: 0x%x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
+  Print(L"EFI System Table Info\r\n   Signature: 0x%lx\r\n   UEFI Revision: 0x%08x\r\n   Header Size: %u Bytes\r\n   CRC32: 0x%08x\r\n   Reserved: 0x%x\r\n", ST->Hdr.Signature, ST->Hdr.Revision, ST->Hdr.HeaderSize, ST->Hdr.CRC32, ST->Hdr.Reserved);
 #else
-  Print(L"System Table Header Info\r\nSignature: 0x%lx\r\nRevision: 0x%08x\r\n\n", ST->Hdr.Signature, ST->Hdr.Revision);
+  Print(L"EFI System Table Info\r\n   Signature: 0x%lx\r\n   UEFI Revision: %u.%u", ST->Hdr.Signature, ST->Hdr.Revision >> 16, (ST->Hdr.Revision & 0xFFFF) / 10);
+  if((ST->Hdr.Revision & 0xFFFF) % 10)
+  {
+    Print(L".%u\r\n", (ST->Hdr.Revision & 0xFFFF) % 10); // UEFI major.minor version numbers are defined in BCD (in a 65535.65535 format) and are meant to be displayed as 2 digits if the minor ones digit is 0. Sub-minor revisions are included in the minor number. See the "EFI_TABLE_HEADER" section in any UEFI spec.
+    // The spec also states that minor versions are limited to a max of 99, even though they get to have a whole 16-bit number.
+  }
+  else
+  {
+    Print(L"\r\n");
+  }
 #endif
 
-  Print(L"Firmware Vendor: %s\r\nFirmware Revision: 0x%08x\r\n\n", ST->FirmwareVendor, ST->FirmwareRevision);
+  Print(L"   Firmware Vendor: %s\r\n   Firmware Revision: 0x%08x\r\n\n", ST->FirmwareVendor, ST->FirmwareRevision);
+
+  // Configuration table info
+  Print(L"%llu system configuration tables are available.\r\n", ST->NumberOfTableEntries);
 
 #ifdef MAIN_DEBUG_ENABLED
   Keywait(L"\0");
 #endif
 
-  // Configuration table info
-  Print(L"Number of configuration tables: %lu\r\n", ST->NumberOfTableEntries);
-
-  // Search for ACPI tables
-  UINT8 RSDPfound = 0;
-  UINT8 RSDP_index = 0;
-
-  for(UINT8 i=0; i < ST->NumberOfTableEntries; i++)
-  {
 // This print is for debugging
 #ifdef MAIN_DEBUG_ENABLED
-    Print(L"Table %d GUID: %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x\r\n", i,
+  // Search for ACPI tables
+  UINT8 RSDPfound = 0;
+  UINTN RSDP_index = 0;
+
+  for(UINTN i=0; i < ST->NumberOfTableEntries; i++)
+  {
+    Print(L"Table %llu GUID: %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x\r\n", i,
             ST->ConfigurationTable[i].VendorGuid.Data1,
             ST->ConfigurationTable[i].VendorGuid.Data2,
             ST->ConfigurationTable[i].VendorGuid.Data3,
@@ -231,7 +284,6 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
             ST->ConfigurationTable[i].VendorGuid.Data4[5],
             ST->ConfigurationTable[i].VendorGuid.Data4[6],
             ST->ConfigurationTable[i].VendorGuid.Data4[7]);
-#endif
 
     if (compare(&ST->ConfigurationTable[i].VendorGuid, &Acpi20TableGuid, 16))
     {
@@ -243,7 +295,7 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   // If no RSDP 2.0, check for 1.0
   if(!RSDPfound)
   {
-    for(UINT8 i=0; i < ST->NumberOfTableEntries; i++)
+    for(UINTN i=0; i < ST->NumberOfTableEntries; i++)
     {
       if (compare(&ST->ConfigurationTable[i].VendorGuid, &AcpiTableGuid, 16))
       {
@@ -256,11 +308,9 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
   if(!RSDPfound)
   {
-    Print(L"Invalid system: no RSDP.\r\n");
-    return EFI_INVALID_PARAMETER;
+    Print(L"System has no RSDP.\r\n");
   }
 
-#ifdef MAIN_DEBUG_ENABLED
   Keywait(L"\0");
 
   // View memmap before too much happens to it
@@ -294,12 +344,12 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
   Keywait(L"InitUEFI_GOP finished.\r\n");
 
   // Data verification
-  Print(L"RSDP address: 0x%llx\r\n", ST->ConfigurationTable[RSDP_index].VendorTable);
+  Print(L"Config table address: 0x%llx\r\n", ST->ConfigurationTable);
   Print(L"Data at RSDP (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(ST->ConfigurationTable[RSDP_index].VendorTable + 8), *(EFI_PHYSICAL_ADDRESS*)ST->ConfigurationTable[RSDP_index].VendorTable);
 #endif
 
   // Load a program and exit boot services, then pass a loader block to that program's entry point to execute the program
-  Status = GoTime(ImageHandle, Graphics, ST->ConfigurationTable[RSDP_index].VendorTable);
+  Status = GoTime(ImageHandle, Graphics, ST->ConfigurationTable, ST->NumberOfTableEntries, ST->Hdr.Revision);
 
   // Pause to evaluate any errors
   Keywait(L"GoTime returned...\r\n");

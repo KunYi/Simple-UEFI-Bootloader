@@ -1,7 +1,7 @@
 # Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications. Looking for the ARM64 version? Get it here: https://github.com/KNNSpeed/Simple-UEFI-Bootloader-ARM64  
 
-**Version 2.1**
+**Version 2.2**
 
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
 
@@ -149,6 +149,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
 
 ## Change Log
+
+V2.2 (5/21/2019) - In Loader Params, the RSDP pointer has been changed to the Configuration Table pointer. This allows programs to use all available configuration tables, not just the ACPI ones. Also changed some of the initial print statements, added Number_of_ConfigTables and UEFI_Version to the loader parameters, and added a 90 second menu timer for the multi-GPU graphics device selection and the single GPU resolution selection menus. Also made graphics mode selection more consistent when using characters to denote modes >10. There's also what looks like a "startup screen" now, some of which was always there despite only being viewable on standard resolutions higher than 1024x768. This not-really-new screen has a (stoppable) 10-second timeout so that it doesn't really get in the way of anything. Oh, and those pesky Wsign-compare warnings when compiling debug binaries are gone now (switched to using ~0ULL, which really should've been used from the get-go instead of -1).  
 
 V2.1 (4/24/2019) - Fixed a regression introduced in V1.4 (it isn't a bug with this code, it's a widespread issue with UEFI firmware): The ClearScreen function, which is just supposed to clear the screen to whatever the background color is and reset the cursor to (0,0), behaves wildly differently depending on firmware. Some video drivers don't reset cursor position, some do a whole video mode reset and set the video mode to 0, effectively destroying any other mode previously set, and some actually work correctly. I forgot about this and left calls to ClearScreen in, but they're gone now. An extra newline now takes the place of where ClearScreen use to be used. Also updated backend GNU-EFI to use the UEFI 2.x OpenProtocol() function instead of the now-archaic EFI 1.0 HandleProtocol() function (this loader was never intended for EFI 1.x devices anyway).
 
