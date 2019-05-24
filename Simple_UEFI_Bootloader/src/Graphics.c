@@ -1167,7 +1167,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       mode = (UINT32)(Key.UnicodeChar - 0x30);
       Key.UnicodeChar = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
+      Print(L"Setting graphics mode %u of %u.\r\n\n", mode + 1, GOPTable->Mode->MaxMode);
     }
 
     // Set mode
@@ -1251,7 +1251,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       // Set mode 0
       mode = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
+      Print(L"Setting graphics mode %u of %u.\r\n\n", mode + 1, GOPTable->Mode->MaxMode);
 
       // Set mode
       // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
@@ -1372,7 +1372,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
         mode = 0;
       }
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
+      Print(L"Setting graphics mode %u of %u.\r\n\n", mode + 1, GOPTable->Mode->MaxMode);
 
       // Set mode
       // This is supposed to black the screen out per spec, but apparently not every GPU got the memo.
@@ -1564,7 +1564,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       }
       Key.UnicodeChar = 0;
 
-      Print(L"Setting graphics mode %u of %u.\r\n", mode + 1, GOPTable->Mode->MaxMode);
+      Print(L"Setting graphics mode %u of %u.\r\n\n", mode + 1, GOPTable->Mode->MaxMode);
     }
 
     // Set mode

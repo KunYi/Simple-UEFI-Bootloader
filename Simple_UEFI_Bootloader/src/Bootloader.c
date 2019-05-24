@@ -262,14 +262,12 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 
 #ifdef MAIN_DEBUG_ENABLED
   Keywait(L"\0");
-#endif
 
-// This print is for debugging
-#ifdef MAIN_DEBUG_ENABLED
   // Search for ACPI tables
   UINT8 RSDPfound = 0;
   UINTN RSDP_index = 0;
 
+  // This print is for debugging
   for(UINTN i=0; i < ST->NumberOfTableEntries; i++)
   {
     Print(L"Table %llu GUID: %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x\r\n", i,
