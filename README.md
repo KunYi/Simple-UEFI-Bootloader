@@ -1,7 +1,7 @@
 # Simple UEFI Bootloader
 A UEFI bootloader for bare-metal x86-64 applications. Looking for the ARM64 version? Get it here: https://github.com/KNNSpeed/Simple-UEFI-Bootloader-ARM64  
 
-**Version 2.2**
+**Version 2.3**
 
 This bootloader is like a much simpler version of GRUB/Elilo/Windows Boot Manager, but mainly meant for writing your own operating system-less 64-bit programs, kernels, or full operating systems. It supports Windows, Linux, and Mac executable binaries (PE32+, 64-bit ELF, and 64-bit Mach-O formats). It also supports... Well, I'll let you figure that one out yourself. ;)
 
@@ -33,7 +33,7 @@ A minimal, cross-platform development environment for making your own programs, 
 - A graphics card (Intel, AMD, NVidia, etc.) **with UEFI GOP support**  
 - A keyboard  
 
-The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check if your graphics card(s) have UEFI GOP support by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set!  
+The earliest GPUs with UEFI GOP support were released around the Radeon HD 7xxx series (~2011). Anything that age or newer should have UEFI GOP support, though older models, like early 7970s, required owners to contact GPU vendors to get UEFI-compatible firmware. On Windows, you can check if your graphics card(s) have UEFI GOP support by downloading TechPowerUp's GPU-Z utility and seeing whether or not the UEFI checkbox is checked. If it is, you're all set! On Macs, boot the system with rEFIt and, in the "About rEFIt" tool (it's one of the small icons) a compatible system will state "Screen Output: Graphics Output (UEFI)" right above "Return to Main Menu."  
 
 *NOTE: You need to check each graphics card if there is a mix, as you will only be able to use the ones with UEFI GOP support. Per the system requirements above, you need at least one compliant device.*  
 
@@ -81,7 +81,7 @@ A copy of the bootloader and a kernel64.txt file is required for every kernel in
 
 ## How to Build from Source  
 
-Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used. I'd personally recommend using the same version as used for Simple-Kernel, as these two projects are designed to share the same compiler folder.  
+Requires GCC 8.0.0 or later and Binutils 2.29.1 or later. I cannot make any guarantees whatsoever for earlier versions, especially with the number of compilation and linking flags used. I'd personally recommend using the same version as used for Simple-Kernel, as these two projects are designed to share the same compiler folder.  
 
 ***Windows:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like C:\BareMetalx64
@@ -99,7 +99,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
 2. Install the latest MacPorts: https://www.macports.org/
 
-3. In Terminal, get the MinGW-w64 package via "sudo port install mingw-w64" ("sudo port install x86_64-w64-mingw32-gcc" might also work)
+3. In Terminal, get the MinGW-w64 package via "sudo port install mingw-w64" ("sudo port install x86_64-w64-mingw32-gcc" should also work if you don't want the 32-bit portion of MinGW-w64)
 
     NOTE: Make sure that MacPorts downloads a version using the correct GCC and Binutils! You may need to run "sudo port selfupdate" if you aren't freshly installing MacPorts before running the above install command.
 
@@ -110,7 +110,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 ***Linux:***  
 1. Download and extract or clone this repository into a dedicated folder, preferably somewhere easy like ~/BareMetalx64
 
-2. If, in the terminal, "gcc --version" reports GCC 7.1.0 or later and "ld --version" reports 2.29.1 or later, do steps 2a, 2b, and 2c. Otherwise go to step 3.
+2. If, in the terminal, "gcc --version" reports GCC 8.0.0 or later and "ld --version" reports 2.29.1 or later, do steps 2a, 2b, and 2c. Otherwise go to step 3.
 
     2a. Type "which gcc" in the terminal, and make a note of what it says (something like /usr/bin/gcc or /usr/local/bin/gcc)
 
@@ -118,7 +118,7 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
 
     2c. Now set the terminal to the Simple-UEFI-Bootloader folder and run "./Compile.sh", which should work and output BOOTX64.EFI in the Backend folder. *That's it!*
 
-3. Looks like we need to build GCC & Binutils. Navigate to the "Backend" folder in terminal and do "git clone git://gcc.gnu.org/git/gcc.git" there. This will download a copy of GCC 8.0.0, which is what I have been using (need this version for the Simple-Kernel). If that git link ever changes, you'll need to find wherever the official GCC git repository ran off to.
+3. Looks like we need to build GCC & Binutils. Navigate to the "Backend" folder in terminal and do "git clone git://gcc.gnu.org/git/gcc.git" there. This will download a copy of the latest GCC, which is necessary for "static-pie" support (when combined with Binutils 2.29.1 or later, it allows  statically-linked, position-independent executables to be created; earlier versions do not). If that git link ever changes, you'll need to find wherever the official GCC git repository ran off to.
 
 4. Once GCC has been cloned, in the cloned folder do "contrib/download_prerequisites" and then "./configure -v --build=x86_64-linux-gnu --host=x86_64-linux-gnu --target=x86_64-linux-gnu --prefix=$PWD/../gcc-8 --enable-checking=release --enable-languages=c --disable-multilib"
 
@@ -149,6 +149,8 @@ Requires GCC 7.1.0 or later and Binutils 2.29.1 or later. I cannot make any guar
     For more information about building GCC and Binutils, see these: http://www.linuxfromscratch.org/blfs/view/cvs/general/gcc.html & http://www.linuxfromscratch.org/lfs/view/development/chapter06/binutils.html  
 
 ## Change Log
+
+V2.3 (9/18/2019) - Added support for Macs that have both EFI 1.10 and UEFI GOP, as Apple ported UEFI GOP to some of its older systems. Tested as far back as a Late 2011 MacBook Pro, which was updated all the way to High Sierra 10.13.6 (High Sierra came with a couple firmware updates, putting it at Boot ROM version 87.0.0.0.0 and SMC version 1.69f4). If the Mac can boot with rEFIt, and rEFIt's "About rEFIt" tool states, "Screen Output: Graphics Output (UEFI)," then it should be compatible. Also added the ability to do relative relocations for ELF64 files. This allows more complex kernels compiled in ELF64 format to work more easily/with significantly less extensive modifications than before. Additionally, the compile script options have been updated and reordered for efficiency and optimization improvements, but the minimum required GCC version is now 8.0.0 for -static-pie support. Finally, fixed a Memory Map size calculation bug that has managed to exist since the very beginning--all it took were Apple's crazy memory maps to find it.
 
 V2.2 (5/21/2019) - In Loader Params, the RSDP pointer has been changed to the Configuration Table pointer. This allows programs to use all available configuration tables, not just the ACPI ones. Also changed some of the initial print statements, added Number_of_ConfigTables and UEFI_Version to the loader parameters, and added a 90 second menu timer for the multi-GPU graphics device selection and the single GPU resolution selection menus. Also made graphics mode selection more consistent when using characters to denote modes >10. There's also what looks like a "startup screen" now, some of which was always there despite only being viewable on standard resolutions higher than 1024x768. This not-really-new screen has a (stoppable) 10-second timeout so that it doesn't really get in the way of anything. Oh, and those pesky Wsign-compare warnings when compiling debug binaries are gone now (switched to using ~0ULL, which really should've been used from the get-go instead of -1).  
 
@@ -182,4 +184,6 @@ V1.0 (1/5/2018) - Initial release. Fully featured for PE32+ images.
 - Tool Interface Standard for [extensive documentation on ELF files](https://www.uclibc.org/docs/elf.pdf)
 - [Apple Inc.](https://www.apple.com/) for [documentation on Mach-O files](https://developer.apple.com/library/content/documentation/DeveloperTools/Conceptual/MachOTopics/0-Introduction/introduction.html)
 - [Low Level Bits](https://lowlevelbits.org/) for [further documentation on Mach-O files](https://lowlevelbits.org/parsing-mach-o-files/)
+- [The rEFIt Project](http://refit.sourceforge.net/) for having figured out how to switch from graphics mode to text mode on Macs with EFI 1.10.
+- [Bruno Bierbaumer](https://github.com/0xbb) for figuring out the [apple_set_os() function](https://github.com/0xbb/apple_set_os.efi) needed to prevent certain Macs' firmware from disabling graphics devices and causing boot issues on those Macs (like the Late 2013 MacBook Pro with discrete graphics, model MacBookPro11,3)
 - [cyrozap](https://github.com/cyrozap) for noting ambiguity in licensing terms

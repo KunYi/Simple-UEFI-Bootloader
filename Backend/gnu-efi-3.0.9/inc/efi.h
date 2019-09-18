@@ -44,6 +44,7 @@ Revision History
 #include "efidevp.h"
 #include "efipciio.h"
 #include "efiprot.h"
+#include "ConsoleControl.h" // Added
 #include "eficon.h"
 #include "efiser.h"
 #include "efi_nii.h"

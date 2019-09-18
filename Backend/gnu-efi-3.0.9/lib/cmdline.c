@@ -1,6 +1,7 @@
 #include "lib.h"
 
 #include "efiprot.h"
+#include "ConsoleControl.h" // Added
 #include "efishellintf.h"
 #include "efishellparm.h"
 

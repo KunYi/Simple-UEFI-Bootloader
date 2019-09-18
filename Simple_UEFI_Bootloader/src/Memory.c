@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Memory Functions
 //==================================================================================================================================
 //
-// Version 2.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -77,6 +77,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
@@ -142,6 +143,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
@@ -238,6 +240,7 @@ VOID print_memmap()
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {

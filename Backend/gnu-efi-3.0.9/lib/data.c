@@ -91,6 +91,9 @@ EFI_GUID NullGuid = { 0,0,0,{0,0,0,0,0,0,0,0} };
 // GNU-EFI was missing these, so I added them from EDK II for GUID matching purposes.
 // They probably won't work for actual use (except EFI_DRIVER_SUPPORTED_EFI_VERSION_PROTOCOL_GUID).
 
+// And except ConsoleControl, which has been straight ported from EDK II and should work fully.
+EFI_GUID gEfiConsoleControlProtocolGuid = EFI_CONSOLE_CONTROL_PROTOCOL_GUID;
+
 #define EFI_STANDARD_ERROR_DEVICE_GUID \
     { 0xd3b36f2d, 0xd551, 0x11d4, {0x9a, 0x46, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d} }
 

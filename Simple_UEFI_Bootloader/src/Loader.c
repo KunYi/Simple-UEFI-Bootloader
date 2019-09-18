@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 2.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -1115,7 +1115,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
             Print(L"Rel_dir_base: 0x%llx, RelTableEnd: 0x%llx\r\n", Relocation_Directory_Base, RelocTableEnd);
 #endif
 
-            EFI_PHYSICAL_ADDRESS page = AllocatedMemory + (UINT64)Relocation_Directory_Base->VirtualAddress; //This virtual address is page-specific, and needs to be offset by Header_memory
+            EFI_PHYSICAL_ADDRESS page = AllocatedMemory + (UINT64)Relocation_Directory_Base->VirtualAddress; // This virtual address is page-specific, and needs to be offset by Header_memory
             UINT16* DataToFix = (UINT16*)((UINT8*)Relocation_Directory_Base + IMAGE_SIZEOF_BASE_RELOCATION); // The base relocation size is 8 bytes (64 bits)
             NumRelocationsPerChunk = (Relocation_Directory_Base->SizeOfBlock - IMAGE_SIZEOF_BASE_RELOCATION)/sizeof(UINT16);
 
@@ -1373,7 +1373,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
         UINT64 virt_size = 0; // Virtual address max
         UINT64 virt_min = ~0ULL; // Minimum virtual address for page number calculation, -1 wraps around to max 64-bit number
         UINT64 Numofprogheaders = (UINT64)ELF64header.e_phnum;
-        size = Numofprogheaders*(UINT64)ELF64header.e_phentsize; // Size of all program headers combined
+        size = Numofprogheaders * (UINT64)ELF64header.e_phentsize; // Size of all program headers combined
 
         Elf64_Phdr * program_headers_table;
 
@@ -1397,7 +1397,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
           return GoTimeStatus;
         }
 
-        // Only want to include PT_LOAD segments
+        // Only want to include PT_LOAD segments for page allocation, PT_DYNAMIC is used for relocations later
         for(i = 0; i < Numofprogheaders; i++) // Go through each section of the "sections" section to get the address boundary of the last section
         {
           Elf64_Phdr *specific_program_header = &program_headers_table[i];
@@ -1773,7 +1773,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
             GoTimeStatus = KernelFile->SetPosition(KernelFile, specific_program_header->p_offset); // p_offset is a UINT64 relative to the beginning of the file, just like Read() expects!
             if(EFI_ERROR(GoTimeStatus))
             {
-              Print(L"Program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
+              Print(L"PT_LOAD program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
               return GoTimeStatus;
             }
 
@@ -1782,7 +1782,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
               GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
               if(EFI_ERROR(GoTimeStatus))
               {
-                Print(L"Program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
+                Print(L"PT_LOAD program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
                 return GoTimeStatus;
               }
             }
@@ -1793,11 +1793,150 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
             // "Next 16 bytes" should be 0 unless last section
 #endif
           }
+          else if((specific_program_header->p_type == PT_DYNAMIC) && (specific_program_header->p_filesz != 0)) // If there's a PT_DYNAMIC section, it's always after PT_LOADs. Relocations thus will never be applied until after the PT_LOAD sections have been loaded.
+          {
+#ifdef ELF_LOADER_DEBUG_ENABLED
+          Keywait(L"Found a PT_DYNAMIC section...\r\n");
+#endif
+            // Check if there are relocations
+            UINTN Dyn_array_size = specific_program_header->p_memsz; // For PT_DYNAMIC, memsz and filesz should always be the same, though if memsz is 0 then that probably means the section should be ignored
+            Elf64_Dyn * Elf64_dynamic_array;
+
+            GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Dyn_array_size, (void**)&Elf64_dynamic_array);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program headers table AllocatePool error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            Print(L"PT_DYNAMIC area allocated, Elf64_dynamic_array: 0x%llx, Dyn_array_size: %llu Bytes in memory\r\n", (UINT64)Elf64_dynamic_array, Dyn_array_size);
+            Print(L"PT_DYNAMIC size in file: %llu Bytes\r\n", specific_program_header->p_filesz);
+            Keywait(L"About to read section into memory...\r\n");
+#endif
+            GoTimeStatus = KernelFile->SetPosition(KernelFile, specific_program_header->p_offset); // p_offset is a UINT64 relative to the beginning of the file, just like Read() expects!
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+
+            // p_filesz was already checked for 0, so it doesn't need to be checked again here
+            GoTimeStatus = KernelFile->Read(KernelFile, &(specific_program_header->p_filesz), (void*)Elf64_dynamic_array);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            Print(L"PT_DYNAMIC Data read.\r\n");
+            Keywait(L"\0");
+#endif
+            Elf64_Dyn * Dyn_array_end = (Elf64_Dyn *) ((UINT64)Elf64_dynamic_array + Dyn_array_size);
+
+            UINT64 Rela_table_size = 0;
+            UINT64 Rela_table_entry_size = 0;
+            Elf64_Rela * Rela_table = (Elf64_Rela*)~0ULL;
+
+            // Go through Elf64_Dyn entries and find DT_RELA (address of relocation table in file), DT_RELASZ (relocation table size), and DT_RELAENT (relocation entry size)
+            for(Elf64_Dyn * Dyn_array_iter = Elf64_dynamic_array; Dyn_array_iter < Dyn_array_end; Dyn_array_iter++)
+            {
+              if(Dyn_array_iter->d_tag == DT_RELA)
+              {
+
+                Rela_table = (Elf64_Rela*)(AllocatedMemory + Dyn_array_iter->d_un.d_ptr);
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table address found: 0x%llx, in memory at: 0x%llx\r\n", Dyn_array_iter->d_un.d_ptr, AllocatedMemory + Dyn_array_iter->d_un.d_ptr);
+#endif
+              }
+              else if(Dyn_array_iter->d_tag == DT_RELASZ)
+              {
+
+                Rela_table_size = Dyn_array_iter->d_un.d_val;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table size found: %llu\r\n", Rela_table_size);
+#endif
+              }
+              else if(Dyn_array_iter->d_tag == DT_RELAENT)
+              {
+
+                Rela_table_entry_size = Dyn_array_iter->d_un.d_val;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table entry size found: %llu\r\n", Rela_table_entry_size);
+#endif
+              }
+            } // end for
+
+            if( (Rela_table != (Elf64_Rela*)~0ULL) ) // Pointer found
+            {
+              // Relocations need to be done
+              if((Rela_table_size == 0) || (Rela_table_entry_size == 0))
+              {
+                Print(L"Bad ELF64: Incomplete relocation table information.\r\n");
+                return EFI_LOAD_ERROR;
+              }
+              // Time to relocate!
+
+              UINT64 Num_Rela = Rela_table_size / Rela_table_entry_size;
+#ifdef ELF_LOADER_DEBUG_ENABLED
+              Print(L"Number of relocations to perform: %llu\r\n", Num_Rela);
+              Keywait(L"About to perform relocations...\r\n");
+#endif
+
+              for(UINT64 Rela_iter = 0; Rela_iter < Num_Rela; Rela_iter++)
+              {
+                if(ELF64_R_TYPE(Rela_table[Rela_iter].r_info) == R_X86_64_RELATIVE)
+                {
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                  Print(L"%llu of %llu, Rela_table[%llu] -- Offset: 0x%llx, Info: 0x%llx, Addend 0x%llx\r\n", Rela_iter+1, Num_Rela, Rela_iter, Rela_table[Rela_iter].r_offset, Rela_table[Rela_iter].r_info, Rela_table[Rela_iter].r_addend);
+                  Print(L"Data at offset: 0x%llx\r\n", *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset));
+#endif
+
+                  *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset) = AllocatedMemory + Rela_table[Rela_iter].r_addend;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                  Print(L"Corrected data at offset: 0x%llx\r\n", *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset));
+                  if( (!(Rela_iter % 20)) && (Rela_iter > 0)) // There could be thousands. Mod 20 gives 20 lines per keywait.
+                  {
+                    Keywait(L"\0");
+                  }
+#endif
+                }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                else
+                {
+                  Print(L"Not an x86_64 relative relocation. Other relocation types are not supported.\r\nUnsafe to continue because things will break (ELF).\r\n");
+                  return EFI_LOAD_ERROR;
+                }
+#endif
+              } // end for
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            else
+            {
+              // It's also possible that there just isn't a relocation table, which is fine.
+              Print(L"Conveniently, no relocation table was found (ELF). Moving on...\r\n");
+            }
+#endif
+
+            // Done with PT_DYNAMIC section
+            if(Elf64_dynamic_array)
+            {
+              GoTimeStatus = BS->FreePool(Elf64_dynamic_array);
+              if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Error freeing Elf64_dynamic_array pool. 0x%llx\r\n", GoTimeStatus);
+                Keywait(L"\0");
+              }
+            }
+          }
           else
           {
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
-            Print(L"Not a PT_LOAD section. Type: 0x%x\r\n", specific_program_header->p_type);
+            Print(L"Not a PT_LOAD or PT_DYNAMIC section. Type: 0x%x\r\n", specific_program_header->p_type);
 #endif
           }
         }
@@ -2409,7 +2548,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
   }
 
 #ifdef FINAL_LOADER_DEBUG_ENABLED
-  Print(L"Header_memory: 0x%llx\r\n", Header_memory);
+  Print(L"Image info:\r\n");
+  Print(L"KernelBaseAddress (image base): 0x%llx\r\n", KernelBaseAddress);
+  Print(L"Header_memory (entry point): 0x%llx\r\n", Header_memory);
   Print(L"Data at Header_memory (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(Header_memory + 8), *(EFI_PHYSICAL_ADDRESS*)Header_memory);
 
   if(KernelisPE)
@@ -2426,6 +2567,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
   // Integrity check
   for(UINT64 k = 0; k < Graphics->NumberOfFrameBuffers; k++)
   {
+    Print(L"GPU %llu info:\r\n", k);
     Print(L"GPU Mode: %u of %u\r\n", Graphics->GPUArray[k].Mode, Graphics->GPUArray[k].MaxMode - 1);
     Print(L"GPU FB: 0x%016llx\r\n", Graphics->GPUArray[k].FrameBufferBase);
     Print(L"GPU FB Size: 0x%016llx\r\n", Graphics->GPUArray[k].FrameBufferSize);
@@ -2451,7 +2593,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
   }
 
 #ifdef FINAL_LOADER_DEBUG_ENABLED
-  Print(L"Loader block allocated, size of structure: %llu\r\n", sizeof(LOADER_PARAMS));
+  Print(L"Loader block allocated at 0x%llx, size of structure: %llu\r\n", (UINT64)Loader_block, sizeof(LOADER_PARAMS));
   Keywait(L"About to get MemMap and exit boot services...\r\n");
 #endif
 
@@ -2468,6 +2610,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
   // Simple version:
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   // Will error intentionally
+  MemMapSize += MemMapDescriptorSize;
   GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
   if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
@@ -2484,6 +2627,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
     if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
@@ -2505,7 +2649,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
       Keywait(L"\0");
     }
 
-#ifdef LOADER_DEBUG_ENABLED
+#ifdef FINAL_LOADER_DEBUG_ENABLED
     Print(L"ExitBootServices #1 failed. 0x%llx, Trying again...\r\n", GoTimeStatus);
     Keywait(L"\0");
 #endif
@@ -2514,6 +2658,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATI
     GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
     if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
     {
+      MemMapSize += MemMapDescriptorSize;
       GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
       if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
       {

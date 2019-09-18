@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Main Header
 //==================================================================================================================================
 //
-// Version 2.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -28,7 +28,7 @@
 #include "dos.h"
 
 #define MAJOR_VER 2
-#define MINOR_VER 2
+#define MINOR_VER 3
 
 //==================================================================================================================================
 // Useful Debugging Code
@@ -43,7 +43,7 @@
 //#define ENABLE_DEBUG // Master debug enable switch
 
 // Debug Lite only has the below flag enabled (for main debug binary, leave this commented out and only use the above definition)
-//#define FINAL_LOADER_DEBUG_ENABLED
+#define FINAL_LOADER_DEBUG_ENABLED
 
 #ifdef ENABLE_DEBUG
     #define SHOW_KERNEL_METADATA
@@ -170,5 +170,14 @@ VOID print_memmap(void);
 #ifdef GOP_NAMING_DEBUG_ENABLED
 EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray);
 #endif
+
+//==================================================================================================================================
+// Misc. Global Variables
+//==================================================================================================================================
+//
+// Global variable declarations for certain parameters used in the bootloader.
+//
+
+extern UINT8 IsApple;
 
 #endif

@@ -39,6 +39,9 @@ extern EFI_BOOT_SERVICES        *BS;
 extern EFI_RUNTIME_SERVICES     *RT;
 #define gRT                      RT
 
+extern EFI_GUID gEfiConsoleControlProtocolGuid;
+#define ConsoleControlProtocol gEfiConsoleControlProtocolGuid
+
 extern EFI_GUID gEfiDevicePathProtocolGuid;
 #define DevicePathProtocol gEfiDevicePathProtocolGuid
 extern EFI_GUID gEfiDevicePathToTextProtocolGuid;

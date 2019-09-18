@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Graphics Functions
 //==================================================================================================================================
 //
-// Version 2.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -16,6 +16,10 @@
 #include "Bootloader.h"
 
 #define GPU_MENU_TIMEOUT_SECONDS 90
+
+STATIC EFI_GUID APPLE_GMUX_GUID = { 0xFA4CE28D, 0xB62F, 0x4C99, { 0x9C, 0xC3, 0x68, 0x15, 0x68, 0x6E, 0x30, 0xF9 }};
+
+STATIC EFI_STATUS apple_set_os(VOID);
 
 //==================================================================================================================================
 //  InitUEFI_GOP: Graphics Initialization
@@ -160,6 +164,13 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
 
   // List all GPUs
 
+  // First check for Apple, as device names don't work on Apple machines, unfortunately.
+  if(IsApple)
+  {
+    Print(L"NOTE: Device names are not supported on Macs.\r\n");
+    goto fruitcake;
+  }
+
   // Get all NAME2-supporting handles
   EFI_HANDLE *Name2Handles;
 
@@ -169,6 +180,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     Print(L"Name2Handles LocateHandleBuffer error. 0x%llx\r\n", GOPStatus);
     return GOPStatus;
   }
+
 /*
   // This could be useful if one wanted a list of all drivers in a system (there's a FreePool commented out later for this, too)
   EFI_HANDLE *DriverHandles;
@@ -800,6 +812,32 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     return GOPStatus;
   }
 
+fruitcake: ;
+
+  if(IsApple)
+  {
+    //
+    // Apple GPU names aren't supported, as they don't work like everyone else's.
+    //
+    // I even tried opening component name 1 protocols on a component name 2 pointer because Apple uses Name1 names, which, surprisingly enough, actually
+    // worked to get some names, but unfortunately it did not get the correct names in the correct places. There are certain guarantees that can be made
+    // in standard UEFI 2.x to get device names as done above, and Apple's firmware just doesn't do things that way. The way Apple does things is more
+    // like a proprietary VM like Hyper-V, but in such a way that is incompatible with the name-matching methods used above. It appears, for example,
+    // that only one of the GPUs has a child handle, and it doesn't have a name.
+    //
+    // It may be that Device 0 is always the iGPU and device 1 is always the dGPU, but there's no way to be sure without seeing Apple's firmware source.
+    // There's no other way to know if LocateHandleBuffer will always find them in exactly the same order across every machine this could run on. So Macs
+    // get this nice little naming scheme instead. At least the handle addresses are different, which is how PC GPUs had to be differentiated before naming
+    // was implemented for them.
+    //
+    for(UINT64 AppleDevNum = 0; AppleDevNum < NumHandlesInHandleBuffer; AppleDevNum++)
+    {
+      POOL_PRINT StringName = {0};
+      //CatPrint(&StringName, L"%c. %s: %s @ Memory Address 0x%llx, using %s\r\n", AppleDevNum + 0x30, ControllerDisplayName, ChildDisplayName, GraphicsHandles[AppleDevNum], DriverDisplayName); // CatPrint allocates pool
+      CatPrint(&StringName, L"%c. Apple Graphics Output Device @ Memory Address 0x%llx\r\n", AppleDevNum + 0x30, GraphicsHandles[AppleDevNum]); // CatPrint allocates pool
+      NameBuffer[AppleDevNum] = StringName.str;
+    }
+  }
 /* // Old way, no GPU names. It's so much simpler, lol
   for(DevNum = 0; DevNum < NumHandlesInHandleBuffer; DevNum++)
   {
@@ -814,6 +852,7 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
     // This sets the default option.
     DevNum = 2;
     UINT64 timeout_seconds = GPU_MENU_TIMEOUT_SECONDS;
+    UINT8 already_set_os = 0;
     // FYI: The EFI watchdog has something like a 5 minute timeout before it resets the system if ExitBootServices() hasn't been reached.
     // Not all systems have a watchdog enabled, but enough do that knowing about the watchdog (and assuming there's always one) is useful.
 
@@ -831,7 +870,15 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       Print(L"1. Configure one\r\n");
       Print(L"2. Configure all to use default resolutions of active displays (usually native)\r\n");
       Print(L"3. Configure all to use 1024x768\r\n");
-      Print(L"\r\nNote: The \"active display(s)\" on a GPU are determined by the GPU's firmware, and not all output ports may be currently active.\r\n\n");
+
+      if(IsApple)
+      {
+        Print(L"\r\nMulti-GPU Apple device: Press '.' key to run apple_set_os(), which keeps the iGPU enabled in addition to the dGPU on laptops like MacBookPro11,3 (Late 2013).\r\n\n");
+      }
+      else
+      {
+        Print(L"\r\nNote: The \"active display(s)\" on a GPU are determined by the GPU's firmware, and not all output ports may be currently active.\r\n\n");
+      }
 
       while(timeout_seconds)
       {
@@ -856,6 +903,23 @@ EFI_STATUS InitUEFI_GOP(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics)
       {
         Print(L"\n\nDefaulting to option %llu...\r\n\n", DevNum);
         break;
+      }
+
+      if(IsApple && (Key.UnicodeChar == 0x2E))
+      {
+        if(already_set_os)
+        {
+          Print(L"apple_set_os has already been run.\r\n\n");
+        }
+        else
+        {
+          already_set_os = 1;
+          GOPStatus = apple_set_os();
+          if(EFI_ERROR(GOPStatus))
+          {
+            Print(L"apple_set_os failed.\r\n\n");
+          }
+        }
       }
     }
 
@@ -2005,3 +2069,74 @@ EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray
   return GOPStatus;
 }
 #endif
+
+//==================================================================================================================================
+//  apple_set_os: Tell a Mac It's Booting Mac OS
+//==================================================================================================================================
+//
+// A simple function that sets instructs Mac UEFI firmware on certain Macs to not disable the Intel GPU, in addition to other
+// hardware. If this function is not called, Mac UEFI assumes Windows is being booted and disables many things.
+//
+// Adapted from https://github.com/0xbb/apple_set_os.efi
+//
+// The below code is licensed under the MIT license included in the LICENSE file.
+//
+
+
+#define APPLE_SET_OS_VENDOR  "Apple Inc."
+#define APPLE_SET_OS_VERSION "Mac OS X 10.13"
+
+STATIC EFI_GUID APPLE_SET_OS_GUID = { 0xc5c5da95, 0x7d5c, 0x45e6, { 0xb2, 0xf1, 0x3f, 0xd5, 0x2b, 0xb1, 0x00, 0x77 }};
+
+typedef struct efi_apple_set_os_interface {
+	UINT64 version;
+	EFI_STATUS (EFIAPI *set_os_version) (IN CHAR8 *version);
+	EFI_STATUS (EFIAPI *set_os_vendor) (IN CHAR8 *vendor);
+} efi_apple_set_os_interface;
+
+STATIC EFI_STATUS apple_set_os(VOID)
+{
+	SIMPLE_TEXT_OUTPUT_INTERFACE *conOut = ST->ConOut;
+	conOut->OutputString(conOut, L"apple_set_os started\r\n");
+
+	efi_apple_set_os_interface *set_os = NULL;
+/*
+  Print(L"GUID: %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x\r\n",
+              APPLE_SET_OS_GUID.Data1,
+              APPLE_SET_OS_GUID.Data2,
+              APPLE_SET_OS_GUID.Data3,
+              APPLE_SET_OS_GUID.Data4[0],
+              APPLE_SET_OS_GUID.Data4[1],
+              APPLE_SET_OS_GUID.Data4[2],
+              APPLE_SET_OS_GUID.Data4[3],
+              APPLE_SET_OS_GUID.Data4[4],
+              APPLE_SET_OS_GUID.Data4[5],
+              APPLE_SET_OS_GUID.Data4[6],
+              APPLE_SET_OS_GUID.Data4[7]);
+*/
+	EFI_STATUS status = LibLocateProtocol(&APPLE_SET_OS_GUID, (VOID**) &set_os);
+	if(EFI_ERROR(status) || set_os == NULL) {
+		conOut->OutputString(conOut, L"Could not locate Apple Set OS protocol. It may not be supported on this machine.\r\n");
+		return status;
+	}
+
+	if(set_os->version != 0){
+		status = set_os->set_os_version((CHAR8 *) APPLE_SET_OS_VERSION);
+		if(EFI_ERROR(status)){
+			conOut->OutputString(conOut, L"Could not set Apple Set OS version.\r\n");
+			return status;
+		}
+		conOut->OutputString(conOut, L"Set OS version to " APPLE_SET_OS_VERSION  ".\r\n");
+	}
+
+	status = set_os->set_os_vendor((CHAR8 *) APPLE_SET_OS_VENDOR);
+	if(EFI_ERROR(status)){
+		conOut->OutputString(conOut, L"Could not set Apple Set OS vendor.\r\n");
+		return status;
+	}
+	conOut->OutputString(conOut, L"Set OS vendor to " APPLE_SET_OS_VENDOR  "\r\n");
+
+  Print(L"apple_set_os() succeeded.\r\n\n");
+
+	return EFI_SUCCESS;
+}

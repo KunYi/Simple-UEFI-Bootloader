@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Bootloader Entrypoint
 //==================================================================================================================================
 //
-// Version 2.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -140,6 +140,9 @@
 
 #include "Bootloader.h"
 
+STATIC CONST CHAR16 AppleFirmwareVendor[6] = L"Apple";
+UINT8 IsApple = 0;
+
 //==================================================================================================================================
 //  efi_main: Main Function
 //==================================================================================================================================
@@ -164,6 +167,13 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
 */
   EFI_STATUS Status;
 
+  // Do a preliminary screen clear, always
+  Status = SystemTable->ConOut->ClearScreen(SystemTable->ConOut);
+  if(EFI_ERROR(Status))
+  {
+    Print(L"NOTE: Could not clear the screen, so there may be some system text above this line.\r\n");
+  }
+
 #ifdef DISABLE_UEFI_WATCHDOG_TIMER
   // Disable watchdog timer for debugging
   Status = BS->SetWatchdogTimer (0, 0, 0, NULL);
@@ -172,6 +182,49 @@ EFI_STATUS efi_main(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE *SystemTable)
     Print(L"Error stopping watchdog, timeout still counting down...\r\n");
   }
 #endif
+
+  // Thanks to the rEFIt 0.14 project for having figured this out long ago. ConsoleControlProtocol is needed to switch Mac boot graphics to text mode.
+  if(compare(ST->FirmwareVendor, AppleFirmwareVendor, 6))
+  {
+    IsApple = 1;
+    EFI_CONSOLE_CONTROL_PROTOCOL * ConsoleMode = NULL;
+    Status = LibLocateProtocol(&ConsoleControlProtocol, (VOID**)&ConsoleMode); // Find the handle that corresponds to this protocol. There's only 1.
+    if(EFI_ERROR(Status))
+    {
+      ConsoleMode = NULL;
+
+  #ifdef MAIN_DEBUG_ENABLED
+      Print(L"Console Control Protocol not located. It may not be supported.\r\n");
+  #endif
+    }
+
+    if(ConsoleMode != NULL)
+    {
+      EFI_CONSOLE_CONTROL_SCREEN_MODE Current_Mode;
+
+      ConsoleMode->GetMode(ConsoleMode, &Current_Mode, NULL, NULL);
+
+      if(Current_Mode != EfiConsoleControlScreenText)
+      {
+  #ifdef MAIN_DEBUG_ENABLED
+        Print(L"Console control protocol located & now setting text mode...\r\n");
+  #endif
+
+        ConsoleMode->SetMode(ConsoleMode, EfiConsoleControlScreenText);
+
+  #ifdef MAIN_DEBUG_ENABLED
+        Print(L"Text mode set.\r\n");
+  #endif
+      }
+  #ifdef MAIN_DEBUG_ENABLED
+      else
+      {
+        Print(L"Output already in text mode.\r\n");
+      }
+  #endif
+    }
+  }
+  // End text mode
 
   // Print out general system info
   EFI_TIME Now;
