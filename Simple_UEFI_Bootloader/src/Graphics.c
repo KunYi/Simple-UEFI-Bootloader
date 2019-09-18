@@ -17,8 +17,6 @@
 
 #define GPU_MENU_TIMEOUT_SECONDS 90
 
-STATIC EFI_GUID APPLE_GMUX_GUID = { 0xFA4CE28D, 0xB62F, 0x4C99, { 0x9C, 0xC3, 0x68, 0x15, 0x68, 0x6E, 0x30, 0xF9 }};
-
 STATIC EFI_STATUS apple_set_os(VOID);
 
 //==================================================================================================================================
