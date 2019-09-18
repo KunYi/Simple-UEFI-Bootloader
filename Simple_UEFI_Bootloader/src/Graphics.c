@@ -907,7 +907,7 @@ fruitcake: ;
       {
         if(already_set_os)
         {
-          Print(L"apple_set_os has already been run.\r\n\n");
+          Print(L"apple_set_os() has already been run.\r\n\n");
         }
         else
         {
@@ -915,7 +915,7 @@ fruitcake: ;
           GOPStatus = apple_set_os();
           if(EFI_ERROR(GOPStatus))
           {
-            Print(L"apple_set_os failed.\r\n\n");
+            Print(L"apple_set_os() failed.\r\n\n");
           }
         }
       }
