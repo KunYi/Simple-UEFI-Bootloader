@@ -2077,7 +2077,7 @@ EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray
 //
 // Adapted from https://github.com/0xbb/apple_set_os.efi
 //
-// The below code is licensed under the MIT license included in the LICENSE file.
+// The below code is incorporated into this project under the MIT license included in the LICENSE file.
 //
 
 
@@ -2086,18 +2086,17 @@ EFI_STATUS WhatProtocols(EFI_HANDLE * HandleArray, UINTN NumHandlesInHandleArray
 
 STATIC EFI_GUID APPLE_SET_OS_GUID = { 0xc5c5da95, 0x7d5c, 0x45e6, { 0xb2, 0xf1, 0x3f, 0xd5, 0x2b, 0xb1, 0x00, 0x77 }};
 
-typedef struct efi_apple_set_os_interface {
-	UINT64 version;
-	EFI_STATUS (EFIAPI *set_os_version) (IN CHAR8 *version);
-	EFI_STATUS (EFIAPI *set_os_vendor) (IN CHAR8 *vendor);
-} efi_apple_set_os_interface;
+typedef struct _EFI_APPLE_SET_OS_INTERFACE {
+	UINT64 Version;
+	EFI_STATUS (EFIAPI *SetOSVersion) (IN CHAR8 *Version);
+	EFI_STATUS (EFIAPI *SetOSVendor) (IN CHAR8 *Vendor);
+} EFI_APPLE_SET_OS_INTERFACE;
 
 STATIC EFI_STATUS apple_set_os(VOID)
 {
-	SIMPLE_TEXT_OUTPUT_INTERFACE *conOut = ST->ConOut;
-	conOut->OutputString(conOut, L"apple_set_os started\r\n");
+	Print(L"apple_set_os() started\r\n");
 
-	efi_apple_set_os_interface *set_os = NULL;
+	EFI_APPLE_SET_OS_INTERFACE *Set_OS_Interface = NULL;
 /*
   Print(L"GUID: %08x-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x\r\n",
               APPLE_SET_OS_GUID.Data1,
@@ -2112,27 +2111,31 @@ STATIC EFI_STATUS apple_set_os(VOID)
               APPLE_SET_OS_GUID.Data4[6],
               APPLE_SET_OS_GUID.Data4[7]);
 */
-	EFI_STATUS status = LibLocateProtocol(&APPLE_SET_OS_GUID, (VOID**) &set_os);
-	if(EFI_ERROR(status) || set_os == NULL) {
-		conOut->OutputString(conOut, L"Could not locate Apple Set OS protocol. It may not be supported on this machine.\r\n");
-		return status;
+	EFI_STATUS SetOSStatus = LibLocateProtocol(&APPLE_SET_OS_GUID, (VOID**) &Set_OS_Interface);
+	if(EFI_ERROR(SetOSStatus) || (Set_OS_Interface == NULL))
+  {
+		Print(L"Could not locate Apple Set OS protocol. It may not be supported on this machine.\r\n");
+		return SetOSStatus;
 	}
 
-	if(set_os->version != 0){
-		status = set_os->set_os_version((CHAR8 *) APPLE_SET_OS_VERSION);
-		if(EFI_ERROR(status)){
-			conOut->OutputString(conOut, L"Could not set Apple Set OS version.\r\n");
-			return status;
+	if(Set_OS_Interface->Version != 0)
+  {
+		SetOSStatus = Set_OS_Interface->SetOSVersion((CHAR8 *) APPLE_SET_OS_VERSION);
+		if(EFI_ERROR(SetOSStatus))
+    {
+		  Print(L"Could not set Apple Set OS version.\r\n");
+			return SetOSStatus;
 		}
-		conOut->OutputString(conOut, L"Set OS version to " APPLE_SET_OS_VERSION  ".\r\n");
+		Print(L"Set OS version to " APPLE_SET_OS_VERSION  ".\r\n");
 	}
 
-	status = set_os->set_os_vendor((CHAR8 *) APPLE_SET_OS_VENDOR);
-	if(EFI_ERROR(status)){
-		conOut->OutputString(conOut, L"Could not set Apple Set OS vendor.\r\n");
-		return status;
+	SetOSStatus = Set_OS_Interface->SetOSVendor((CHAR8 *) APPLE_SET_OS_VENDOR);
+	if(EFI_ERROR(SetOSStatus))
+  {
+		Print(L"Could not set Apple Set OS vendor.\r\n");
+		return SetOSStatus;
 	}
-	conOut->OutputString(conOut, L"Set OS vendor to " APPLE_SET_OS_VENDOR  "\r\n");
+	Print(L"Set OS vendor to " APPLE_SET_OS_VENDOR  "\r\n");
 
   Print(L"apple_set_os() succeeded.\r\n\n");
 
