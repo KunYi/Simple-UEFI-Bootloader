@@ -871,7 +871,7 @@ fruitcake: ;
 
       if(IsApple)
       {
-        Print(L"\r\nMulti-GPU Apple device: Press '.' key to run apple_set_os(), which keeps the iGPU enabled in addition to the dGPU on laptops like MacBookPro11,3 (Late 2013).\r\n\n");
+        Print(L"\r\nMulti-GPU Apple device: Press the . key to run apple_set_os(), which leaves the iGPU enabled in addition to the dGPU on laptops like MacBookPro11,3 (Late 2013).\r\n\n");
       }
       else
       {
