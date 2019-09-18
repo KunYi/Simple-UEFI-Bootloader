@@ -871,7 +871,7 @@ fruitcake: ;
 
       if(IsApple)
       {
-        Print(L"\r\nMulti-GPU Apple device: Press the . key to run apple_set_os(), which leaves the iGPU enabled in addition to the dGPU on laptops like MacBookPro11,3 (Late 2013).\r\n\n");
+        Print(L"\r\nMulti-GPU Apple device: Press the . key to run apple_set_os(), which leaves the iGPU enabled in addition to the dGPU on laptops like MacBookPro11,3.\r\n\n");
       }
       else
       {
@@ -2114,7 +2114,7 @@ STATIC EFI_STATUS apple_set_os(VOID)
 	EFI_STATUS SetOSStatus = LibLocateProtocol(&APPLE_SET_OS_GUID, (VOID**) &Set_OS_Interface);
 	if(EFI_ERROR(SetOSStatus) || (Set_OS_Interface == NULL))
   {
-		Print(L"Could not locate Apple Set OS protocol. It may not be supported on this machine.\r\n");
+		Print(L"Apple Set OS protocol not found. It may not be supported on this machine.\r\n");
 		return SetOSStatus;
 	}
 
