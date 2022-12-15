@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Memory Functions
 //==================================================================================================================================
 //
-// Version 1.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -50,7 +50,7 @@ UINT8 VerifyZeroMem(UINT64 NumBytes, UINT64 BaseAddr) // BaseAddr is a 64-bit un
 {
   for(UINT64 i = 0; i < NumBytes; i++)
   {
-    if(*(EFI_PHYSICAL_ADDRESS*)(BaseAddr + i) != 0)
+    if(*(((UINT8*)BaseAddr) + i) != 0)
     {
       return 1;
     }
@@ -77,18 +77,19 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddress MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return -1;
+      return ~0ULL;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddress. 0x%llx\r\n", memmap_status);
-    return -1;
+    return ~0ULL;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -109,7 +110,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddress(UINT64 pages, EFI_PHYSICAL_ADDRESS OldA
 #ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses...\r\n");
 #endif
-    return -1;
+    return ~0ULL;
   }
 
   memmap_status = BS->FreePool(MemMap);
@@ -142,18 +143,19 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {
       Print(L"ActuallyFreeAddressByPage MemMap AllocatePool error. 0x%llx\r\n", memmap_status);
-      return -1;
+      return ~0ULL;
     }
     memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
   if(EFI_ERROR(memmap_status))
   {
     Print(L"Error getting memory map for ActuallyFreeAddressByPage. 0x%llx\r\n", memmap_status);
-    return -1;
+    return ~0ULL;
   }
 
   // Multiply NumberOfPages by EFI_PAGE_SIZE to get the end address... which should just be the start of the next section.
@@ -163,7 +165,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
     // Within each compatible EfiConventionalMemory, look for space
     if((Piece->Type == EfiConventionalMemory) && (Piece->NumberOfPages >= pages))
     {
-      PhysicalEnd = Piece->PhysicalStart + (Piece->NumberOfPages << EFI_PAGE_SHIFT) - 1; // Get the end of this range
+      PhysicalEnd = Piece->PhysicalStart + (Piece->NumberOfPages << EFI_PAGE_SHIFT) - EFI_PAGE_MASK; // Get the end of this range, and use it to set a bound on the range (define a max returnable address).
       // (pages*EFI_PAGE_SIZE) or (pages << EFI_PAGE_SHIFT) gives the size the kernel would take up in memory
       if((OldAddress >= Piece->PhysicalStart) && ((OldAddress + (pages << EFI_PAGE_SHIFT)) < PhysicalEnd)) // Bounds check on OldAddress
       {
@@ -187,7 +189,7 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
 #ifdef MEMORY_CHECK_INFO
     Print(L"No more free addresses by page...\r\n");
 #endif
-    return -1;
+    return ~0ULL;
   }
 
   memmap_status = BS->FreePool(MemMap);
@@ -206,16 +208,8 @@ EFI_PHYSICAL_ADDRESS ActuallyFreeAddressByPage(UINT64 pages, EFI_PHYSICAL_ADDRES
 // Get the system memory map, parse it, and print it. Print the whole thing.
 //
 
-VOID print_memmap()
-{
-  EFI_STATUS memmap_status;
-  UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
-  UINT32 MemMapDescriptorVersion;
-  EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
-  EFI_MEMORY_DESCRIPTOR * Piece;
-  UINT16 line = 0;
-
-  CHAR16 * mem_types[] = {
+// This array is a global variable so that it can be made static, which helps prevent a stack overflow if it ever needs to lengthen.
+STATIC CONST CHAR16 mem_types[16][27] = {
       L"EfiReservedMemoryType     ",
       L"EfiLoaderCode             ",
       L"EfiLoaderData             ",
@@ -232,11 +226,21 @@ VOID print_memmap()
       L"EfiPalCode                ",
       L"EfiPersistentMemory       ",
       L"EfiMaxMemoryType          "
-  };
+};
+
+VOID print_memmap()
+{
+  EFI_STATUS memmap_status;
+  UINTN MemMapSize = 0, MemMapKey, MemMapDescriptorSize;
+  UINT32 MemMapDescriptorVersion;
+  EFI_MEMORY_DESCRIPTOR * MemMap = NULL;
+  EFI_MEMORY_DESCRIPTOR * Piece;
+  UINT16 line = 0;
 
   memmap_status = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(memmap_status == EFI_BUFFER_TOO_SMALL)
   {
+    MemMapSize += MemMapDescriptorSize;
     memmap_status = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap
     if(EFI_ERROR(memmap_status)) // Error! Wouldn't be safe to continue.
     {

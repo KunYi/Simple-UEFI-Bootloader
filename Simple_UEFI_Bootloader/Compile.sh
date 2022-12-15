@@ -2,7 +2,7 @@
 #
 # =================================
 #
-# RELEASE VERSION 1.1
+# RELEASE VERSION 1.2
 #
 # GCC UEFI Bootloader Linux Compile Script
 #
@@ -29,9 +29,9 @@ perl -pi -e 's/\r\n/\n/g' h_files.txt
 #
 
 CurDir=$PWD
-GCC_FOLDER_NAME=gcc-linux
-EFI_FOLDER_NAME=gnu-efi-3.0.6
-BINUTILS_FOLDER_NAME=binutils-2.29.1-linux
+GCC_FOLDER_NAME=/usr
+EFI_FOLDER_NAME=gnu-efi-3.0.9
+BINUTILS_FOLDER_NAME=/usr
 LinkerScript="$EFI_FOLDER_NAME/gnuefi/elf_x86_64_efi.lds"
 
 # So that GCC knows where to find as and ld
@@ -88,8 +88,8 @@ done < $CurDir/h_files.txt
 
 set -v
 while read f; do
-  echo "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "$f"
-  "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "$f"
+  echo "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "$f"
+  "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "$f"
 done < $CurDir/c_files_linux.txt
 set +v
 
@@ -99,8 +99,8 @@ set +v
 
 #set -v
 #for f in $CurDir/startup/*.c; do
-#  echo "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
-#  "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
+#  echo "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -Wpedantic -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
+#  "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -Wpedantic -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
 #done
 #set +v
 
@@ -122,8 +122,8 @@ set +v
 
 set -v
 for f in $CurDir/src/*.c; do
-  echo "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
-  "$GCC_FOLDER_NAME/bin/gcc" -ffreestanding -fpic -fshort-wchar -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -m64 -mno-red-zone -DGNU_EFI_USE_MS_ABI -maccumulate-outgoing-args --std=c11 $HFILES -Og -g3 -Wall -Wextra -Wdouble-promotion -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
+  echo "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -Wpedantic -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
+  "$GCC_FOLDER_NAME/bin/gcc" -DGNU_EFI_USE_MS_ABI -mno-avx -mcmodel=small -mno-stack-arg-probe -m64 -mno-red-zone -maccumulate-outgoing-args -Og -ffreestanding -fshort-wchar -fpie -fomit-frame-pointer -fno-delete-null-pointer-checks -fno-zero-initialized-in-bss -fno-common -fno-exceptions -fno-unwind-tables -fno-asynchronous-unwind-tables -fno-stack-protector -fno-stack-check -fno-strict-aliasing -fno-merge-all-constants -fno-merge-constants --std=c11 $HFILES -g3 -Wall -Wextra -Wdouble-promotion -Wpedantic -fmessage-length=0 -c -MMD -MP -Wa,-adhln="${f%.*}.out" -MF"${f%.*}.d" -MT"${f%.*}.o" -o "${f%.*}.o" "${f%.*}.c"
 done
 set +v
 
@@ -159,12 +159,12 @@ done
 #
 
 set -v
-"$BINUTILS_FOLDER_NAME/bin/ld" -T$LinkerScript -nostdlib --warn-common --no-undefined -znocombreloc -s -shared -Bsymbolic -Map=output.map -o "program.so" @"objects.list"
+"$GCC_FOLDER_NAME/bin/gcc" -T$LinkerScript -nostdlib -s -static-pie -Wl,--warn-common -Wl,--no-undefined -Wl,-z,text -Wl,-z,norelro -Wl,-z,now -Wl,-Map=output.map -o "program.so" @"objects.list"
 set +v
 # Remove -s in the above command to keep debug symbols in the output binary.
 
 #
-# Create an EFI exectuable from program.so and output the program size
+# Create an EFI executable from program.so and output the program size
 #
 
 echo

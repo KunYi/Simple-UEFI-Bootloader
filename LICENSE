@@ -9,6 +9,12 @@
 The licenses for GNU-EFI can be found in README.efilib in the GNU-EFI folder in
 "Backend," as well as in individual files within the GNU-EFI source package.
 
+The "ConsoleControl.h" file is from the Tianocore EDK II project and is used
+under the terms of the 2-Clause BSD License included in this file.
+
+The apple_set_os() section in Graphics.c is used under the terms of the MIT
+license included in this file.
+
 "fat.h" and "loader.h," as well as the contents of the "mach" folder, are
 reproduced under the terms of the Apple Software License 2.0. These files were
 modified from xnu-4570.1.46. A copy of the APSL 2.0 is included in this file.
@@ -25,9 +31,9 @@ included at the end of this file.
 //=============================================================================
 
 All remaining source not covered by a license is released under the following
-license (note the copyright is non-exclusive):
+license:
 
-Copyright (c) 2017-2018 KNNSpeed
+Copyright (c) 2017-2019 KNNSpeed
 
 This software is provided free of charge in hopes that it may be useful, and it
 can be downloaded and used in whole or in part. However, by using, copying,
@@ -46,19 +52,19 @@ just examples: the important point is that the exact original source is
 identified and attributed.
 
 Short:
-// From V1.2 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
+// From V2.3 of https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Medium:
-// From KNNSpeed's "Simple UEFI Bootloader," V1.2:
+// From KNNSpeed's "Simple UEFI Bootloader," V2.3:
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
 
 Long (Recommended):
 // From KNNSpeed's "Simple UEFI Bootloader":
 // https://github.com/KNNSpeed/Simple-UEFI-Bootloader
-// V1.2, [Date you got it]
+// V2.3, [Date you got it]
 
 The last line of the long form might look like:
-V1.2, January 8, 2018
+V2.3, September 18, 2019
 
 2) THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
@@ -76,7 +82,67 @@ printing it out and brushing your cat's teeth with it... Unless, of course, you
 printed an appropriate citation along with it.
 
 //=============================================================================
-//  Apple Public Source License 2.0 (APSL 2.0)
+// 2-Clause BSD License (ConsoleControl.h)
+//=============================================================================
+
+Copyright (c) 2004 - 2016, Intel Corporation. All rights reserved.
+Copyright (c) 2008 - 2010, Apple Inc. All rights reserved.
+Copyright (c) 2011 - 2015, ARM Limited. All rights reserved.
+Copyright (c) 2014 - 2015, Linaro Limited. All rights reserved.
+Copyright (c) 2013 - 2015, Red Hat, Inc.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions
+are met:
+
+* Redistributions of source code must retain the above copyright
+  notice, this list of conditions and the following disclaimer.
+* Redistributions in binary form must reproduce the above copyright
+  notice, this list of conditions and the following disclaimer in
+  the documentation and/or other materials provided with the
+  distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
+FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
+INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
+LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
+ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
+
+//=============================================================================
+// MIT License (apple_set_os() section in Graphics.c)
+//=============================================================================
+
+The MIT License (MIT)
+
+Copyright (c) 2015 Bruno Bierbaumer
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+//=============================================================================
+//  Apple Public Source License 2.0 (APSL 2.0) (fat.h, loader.h, and mach folder)
 //=============================================================================
 
 APSL 2.0: https://opensource.apple.com/apsl
@@ -412,7 +478,7 @@ ENJOYMENT OR NON-INFRINGEMENT.  Please see the License for the specific language
 governing rights and limitations under the License."
 
 //=============================================================================
-//  GNU General Public License 3.0 (GNU GPL 3.0)
+//  GNU General Public License 3.0 (GNU GPL 3.0) (elf.h)
 //=============================================================================
 
 GPL 3.0: https://www.gnu.org/licenses/gpl-3.0.html
@@ -1038,7 +1104,7 @@ Program, unless a warranty or assumption of liability accompanies a
 copy of the Program in return for a fee.
 
 //=============================================================================
-//  GNU Lesser General Public License 3.0 (GNU LGPL 3.0)
+//  GNU Lesser General Public License 3.0 (GNU LGPL 3.0) (elf.h)
 //=============================================================================
 
 LGPL 3.0: https://www.gnu.org/licenses/lgpl-3.0.en.html

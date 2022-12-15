@@ -2,7 +2,7 @@
 //  Simple UEFI Bootloader: Kernel Loader and Entry Point Jump
 //==================================================================================================================================
 //
-// Version 1.2
+// Version 2.3
 //
 // Author:
 //  KNNSpeed
@@ -19,10 +19,10 @@
 //  GoTime: Kernel Loader
 //==================================================================================================================================
 //
-// Load Kernel64 (64-bit PE32+, ELF, or Mach-O), exit boot services, and jump to the entry point of Kernel64.
+// Load Kernel (64-bit PE32+, ELF, or Mach-O), exit boot services, and jump to the entry point of kernel file
 //
 
-EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable)
+EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, EFI_CONFIGURATION_TABLE * SysCfgTables, UINTN NumSysCfgTables, UINT32 UEFIVer)
 {
 #ifdef GOP_DEBUG_ENABLED
   // Integrity check
@@ -47,39 +47,53 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
   EFI_STATUS GoTimeStatus;
 
-  // Load file called Kernel64 from this drive's root
+  // These hold data for the loader params at the end
+  EFI_PHYSICAL_ADDRESS KernelBaseAddress = 0;
+  UINTN KernelPages = 0;
+
+  // Load kernel file from somewhere on this drive
 
 	EFI_LOADED_IMAGE_PROTOCOL *LoadedImage;
-  // Reserve memory for LoadedImage
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_LOADED_IMAGE_PROTOCOL), (void**)&LoadedImage);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"LoadedImage AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
 
   // Get a pointer to the (loaded image) pointer of BOOTX64.EFI
   // Pointer 1 -> Pointer 2 -> BOOTX64.EFI
   // OpenProtocol wants Pointer 1 as input to give you Pointer 2.
-	GoTimeStatus = ST->BootServices->OpenProtocol(ImageHandle, &LoadedImageProtocol, (void**)&LoadedImage, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+	GoTimeStatus = ST->BootServices->OpenProtocol(ImageHandle, &LoadedImageProtocol, (void**)&LoadedImage, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"LoadedImage OpenProtocol error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
 
-  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
-  // Reserve memory for filesystem structure
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_SIMPLE_FILE_SYSTEM_PROTOCOL), (void**)&FileSystem);
+  // Need these for later
+  CHAR16 * ESPRootTemp = DevicePathToStr(DevicePathFromHandle(LoadedImage->DeviceHandle));
+  UINT64 ESPRootSize = StrSize(ESPRootTemp);
+
+  // DevicePathToStr allocates memory of type Loadedimage->ImageDataType (this is set by firmware)
+  // Instead we want a known data type, so reallocate it:
+  CHAR16 * ESPRoot;
+
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, ESPRootSize, (void**)&ESPRoot);
   if(EFI_ERROR(GoTimeStatus))
   {
-    Print(L"FileSystem AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    Print(L"ESPRoot AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
 
+  CopyMem(ESPRoot, ESPRootTemp, ESPRootSize);
+
+  GoTimeStatus = BS->FreePool(ESPRootTemp);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing ESPRootTemp pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  EFI_SIMPLE_FILE_SYSTEM_PROTOCOL *FileSystem;
+
   // Parent device of BOOTX64.EFI (the ImageHandle originally passed in is this very file)
   // Loadedimage is an EFI_LOADED_IMAGE_PROTOCOL pointer that points to BOOTX64.EFI
-  GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL);
+  GoTimeStatus = ST->BootServices->OpenProtocol(LoadedImage->DeviceHandle, &FileSystemProtocol, (void**)&FileSystem, ImageHandle, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
   if(EFI_ERROR(GoTimeStatus))
   {
     Print(L"FileSystem OpenProtocol error. 0x%llx\r\n", GoTimeStatus);
@@ -87,12 +101,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   }
 
   EFI_FILE *CurrentDriveRoot;
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&CurrentDriveRoot);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"CurrentDriveRoot AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
 
   GoTimeStatus = FileSystem->OpenVolume(FileSystem, &CurrentDriveRoot);
   if(EFI_ERROR(GoTimeStatus))
@@ -101,19 +109,314 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     return GoTimeStatus;
   }
 
-  EFI_FILE *KernelFile;
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, sizeof(EFI_FILE_PROTOCOL), (void**)&KernelFile);
+///
+  // Below Kernel64.txt loading & parsing code adapted from V2.1 of https://github.com/KNNSpeed/UEFI-Stub-Loader
+
+  // Locate Kernel64.txt, which should be in the same directory as this program
+  // ((FILEPATH_DEVICE_PATH*)LoadedImage->FilePath)->PathName is, e.g., \EFI\BOOT\BOOTX64.EFI
+
+  CHAR16 * BootFilePath = ((FILEPATH_DEVICE_PATH*)LoadedImage->FilePath)->PathName;
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"BootFilePath: %s\r\n", BootFilePath);
+#endif
+
+  UINTN TxtFilePathPrefixLength = 0;
+  UINTN BootFilePathLength = 0;
+
+  while(BootFilePath[BootFilePathLength] != L'\0')
+  {
+    if(BootFilePath[BootFilePathLength] == L'\\')
+    {
+      TxtFilePathPrefixLength = BootFilePathLength; // Could use ++BootFilePathLength here instead of the two separate += below, but it's less clear and it doesn't make any meaningful difference to do so.
+    }
+    BootFilePathLength++;
+  }
+  BootFilePathLength += 1; // For Null Term
+  TxtFilePathPrefixLength += 1; // To account for the last '\' in the file path (file path prefix does not get null-terminated)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"BootFilePathLength: %llu, TxtFilePathPrefixLength: %llu, BootFilePath Size: %llu \r\n", BootFilePathLength, TxtFilePathPrefixLength, StrSize(BootFilePath));
+  Keywait(L"\0");
+#endif
+
+  CONST CHAR16 TxtFileName[13] = L"Kernel64.txt";
+
+  UINTN TxtFilePathPrefixSize = TxtFilePathPrefixLength * sizeof(CHAR16);
+  UINTN TxtFilePathSize = TxtFilePathPrefixSize + sizeof(TxtFileName);
+
+  CHAR16 * TxtFilePath;
+
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, TxtFilePathSize, (void**)&TxtFilePath);
   if(EFI_ERROR(GoTimeStatus))
   {
-    Print(L"KernelFile AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    Print(L"TxtFilePathPrefix AllocatePool error. 0x%llx\r\n", GoTimeStatus);
     return GoTimeStatus;
   }
 
+  // Don't really need this. Data is measured to be the right size, meaning every byte in TxtFilePath gets overwritten.
+//  ZeroMem(TxtFilePath, TxtFilePathSize);
+
+  CopyMem(TxtFilePath, BootFilePath, TxtFilePathPrefixSize);
+  CopyMem(&TxtFilePath[TxtFilePathPrefixLength], TxtFileName, sizeof(TxtFileName));
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"TxtFilePath: %s, TxtFilePath Size: %llu\r\n", TxtFilePath, TxtFilePathSize);
+  Keywait(L"\0");
+#endif
+
+  // Get ready to open the Kernel64.txt file
+  EFI_FILE *KernelcmdFile;
+
+  // Open the Kernel64.txt file and assign it to the KernelcmdFile EFI_FILE variable
+  // It turns out the Open command can support directory trees with "\" like in Windows. Neat!
+  GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelcmdFile, TxtFilePath, EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
+  if (EFI_ERROR(GoTimeStatus))
+  {
+    Keywait(L"Kernel64.txt file is missing\r\n");
+    return GoTimeStatus;
+  }
+
+#ifdef LOADER_DEBUG_ENABLED
+  Keywait(L"Kernel64.txt file opened.\r\n");
+#endif
+
+  // Now to get Kernel64.txt's file size
+  UINTN Txt_FileInfoSize;
+  // Need to know the size of the file metadata to get the file metadata...
+  GoTimeStatus = KernelcmdFile->GetInfo(KernelcmdFile, &gEfiFileInfoGuid, &Txt_FileInfoSize, NULL);
+  // GetInfo will intentionally error out and provide the correct Txt_FileInfoSize value
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"Txt_FileInfoSize: %llu Bytes\r\n", Txt_FileInfoSize);
+#endif
+
+  // Prep metadata destination
+  EFI_FILE_INFO *Txt_FileInfo;
+  // Reserve memory for file info/attributes and such to prevent it from getting run over
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Txt_FileInfoSize, (void**)&Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Txt_FileInfo AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  // Actually get the metadata
+  GoTimeStatus = KernelcmdFile->GetInfo(KernelcmdFile, &gEfiFileInfoGuid, &Txt_FileInfoSize, Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"GetInfo error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+#ifdef SHOW_KERNEL_METADATA
+  // Show metadata
+  Print(L"FileName: %s\r\n", Txt_FileInfo->FileName);
+  Print(L"Size: %llu\r\n", Txt_FileInfo->Size);
+  Print(L"FileSize: %llu\r\n", Txt_FileInfo->FileSize);
+  Print(L"PhysicalSize: %llu\r\n", Txt_FileInfo->PhysicalSize);
+  Print(L"Attribute: %llx\r\n", Txt_FileInfo->Attribute);
+/*
+  NOTE: Attributes:
+
+  #define EFI_FILE_READ_ONLY 0x0000000000000001
+  #define EFI_FILE_HIDDEN 0x0000000000000002
+  #define EFI_FILE_SYSTEM 0x0000000000000004
+  #define EFI_FILE_RESERVED 0x0000000000000008
+  #define EFI_FILE_DIRECTORY 0x0000000000000010
+  #define EFI_FILE_ARCHIVE 0x0000000000000020
+  #define EFI_FILE_VALID_ATTR 0x0000000000000037
+
+*/
+  Print(L"Created: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Txt_FileInfo->CreateTime.Month, Txt_FileInfo->CreateTime.Day, Txt_FileInfo->CreateTime.Year, Txt_FileInfo->CreateTime.Hour, Txt_FileInfo->CreateTime.Minute, Txt_FileInfo->CreateTime.Second, Txt_FileInfo->CreateTime.Nanosecond);
+  Print(L"Last Modified: %02hhu/%02hhu/%04hu - %02hhu:%02hhu:%02hhu.%u\r\n", Txt_FileInfo->ModificationTime.Month, Txt_FileInfo->ModificationTime.Day, Txt_FileInfo->ModificationTime.Year, Txt_FileInfo->ModificationTime.Hour, Txt_FileInfo->ModificationTime.Minute, Txt_FileInfo->ModificationTime.Second, Txt_FileInfo->ModificationTime.Nanosecond);
+  Keywait(L"\0");
+#endif
+
+  // Read text file into memory now that we know the file size
+  CHAR16 * KernelcmdArray;
+  // Reserve memory for text file
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Txt_FileInfo->FileSize, (void**)&KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelcmdArray AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  // Actually read the file
+  GoTimeStatus = KernelcmdFile->Read(KernelcmdFile, &Txt_FileInfo->FileSize, KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelcmdArray read error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+#ifdef LOADER_DEBUG_ENABLED
+  Keywait(L"KernelcmdFile read into memory.\r\n");
+#endif
+
+  // UTF-16 format check
+  UINT16 BOM_check = UTF16_BOM_LE;
+  if(!compare(KernelcmdArray, &BOM_check, 2))
+  {
+    BOM_check = UTF16_BOM_BE; // Check endianness
+    if(compare(KernelcmdArray, &BOM_check, 2))
+    {
+      Print(L"Error: Kernel64.txt has the wrong endianness for this system.\r\n");
+    }
+    else // Probably missing a BOM
+    {
+      Print(L"Error: Kernel64.txt not formatted as UTF-16/UCS-2 with BOM.\r\n\n");
+      Print(L"Q: What is a BOM?\r\n\n");
+      Print(L"A: The BOM (Byte Order Mark) is a 2-byte identification sequence\r\n");
+      Print(L"(U+FEFF) at the start of a UTF16/UCS-2-encoded file.\r\n");
+      Print(L"Unfortunately not all editors add it in, and without\r\n");
+      Print(L"a BOM present programs like this one cannot easily tell that a\r\n");
+      Print(L"text file is encoded in UTF16/UCS-2.\r\n\n");
+      Print(L"Windows Notepad & Wordpad and Linux gedit & xed all add BOMs when\r\n");
+      Print(L"saving files as .txt with encoding set to \"Unicode\" (Windows)\r\n");
+      Print(L"or \"UTF16\" (Linux), so use one of them to make Kernel64.txt.\r\n\n");
+    }
+    Keywait(L"Please fix the file and try again.\r\n");
+    return GoTimeStatus;
+  }
+  // Parse Kernel64.txt file for location of kernel image and command line
+  // Kernel image location line will be of format e.g. \EFI\ubuntu\vmlinuz.efi followed by \n or \r\n
+  // Command line will just go until the next \n or \r\n, and should just be loaded as a UTF-16 string
+
+  // Get size of kernel image path & command line and populate the data retention variables
+  UINT64 FirstLineLength = 0;
+  UINT64 KernelPathSize = 0;
+
+  for(UINT64 i = 1; i < ((Txt_FileInfo->FileSize) >> 1); i++) // i starts at 1 to skip the BOM, ((Txt_FileInfo->FileSize) >> 1) is the number of 2-byte units in the file
+  {
+    if(KernelcmdArray[i] == L'\n')
+    {
+      // Account for the L'\n'
+      FirstLineLength = i + 1;
+      // The extra +1 is to start the command line parse in the correct place
+      break;
+    }
+    else if(KernelcmdArray[i] == L'\r')
+    {
+      // There'll be a \n after the \r
+      FirstLineLength = i + 1 + 1;
+      // The extra +1 is to start the command line parse in the correct place
+      break;
+    }
+
+    if(KernelcmdArray[i] != L' ') // There might be an errant space or two. Ignore them.
+    {
+      KernelPathSize++;
+    }
+  }
+  UINT64 KernelPathLen = KernelPathSize; // Need this for later
+  // Need to add null terminator. Multiply by size of CHAR16 (2 bytes) to get size.
+  KernelPathSize = (KernelPathSize + 1) << 1; // (KernelPathSize + 1) * sizeof(CHAR16)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"KernelPathSize: %llu\r\n", KernelPathSize);
+#endif
+
+  // Command line's turn
+  UINT64 CmdlineSize = 0; // Interestingly, the Linux kernel only takes 256 to 4096 chars for load options depending on architecture. Here's 2^63 UTF-16 characters (-1 to account for null terminator).
+
+  for(UINT64 j = FirstLineLength; j < ((Txt_FileInfo->FileSize) >> 1); j++)
+  {
+    if((KernelcmdArray[j] == L'\n') || (KernelcmdArray[j] == L'\r')) // Reached the end of the line
+    {
+      break;
+    }
+
+    CmdlineSize++;
+  }
+  UINT64 CmdlineLen = CmdlineSize; // Need this for later
+  // Need to add null terminator. Multiply by size of CHAR16 (2 bytes) to get size.
+  CmdlineSize = (CmdlineSize + 1) << 1; // (CmdlineSize + 1) * sizeof(CHAR16)
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"CmdlineSize: %llu\r\n", CmdlineSize);
+#endif
+
+  CHAR16 * KernelPath; // EFI Kernel file's Path
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, KernelPathSize, (void**)&KernelPath);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"KernelPath AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  CHAR16 * Cmdline; // Command line to pass to EFI kernel
+  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, CmdlineSize, (void**)&Cmdline);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Cmdline AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  for(UINT64 i = 1; i < FirstLineLength; i++)
+  {
+    if((KernelcmdArray[i] == L'\n') || (KernelcmdArray[i] == L'\r'))
+    {
+      break;
+    }
+
+    if(KernelcmdArray[i] != L' ') // There might be an errant space or two. Ignore them.
+    {
+      KernelPath[i-1] = KernelcmdArray[i]; // i-1 to ignore the 2 bytes of UTF-16 BOM
+    }
+  }
+  KernelPath[KernelPathLen] = L'\0'; // Need to null-terminate this string
+
+  // Command line's turn
+  for(UINT64 j = FirstLineLength; j < ((Txt_FileInfo->FileSize) >> 1); j++)
+  {
+    if((KernelcmdArray[j] == L'\n') || (KernelcmdArray[j] == L'\r')) // Reached the end of the line
+    {
+      break;
+    }
+
+    Cmdline[j-FirstLineLength] = KernelcmdArray[j];
+  }
+  Cmdline[CmdlineLen] = L'\0'; // Need to null-terminate this string
+
+#ifdef LOADER_DEBUG_ENABLED
+  Print(L"Kernel image path: %s\r\nKernel image path size: %u\r\n", KernelPath, KernelPathSize);
+  Print(L"Kernel command line: %s\r\nKernel command line size: %u\r\n", Cmdline, CmdlineSize);
+  Keywait(L"Loading image... (might take a second or two after pressing a key)\r\n");
+#endif
+
+  // Free pools allocated from before as they are no longer needed
+  GoTimeStatus = BS->FreePool(TxtFilePath);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing TxtFilePathPrefix pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  GoTimeStatus = BS->FreePool(KernelcmdArray);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing KernelcmdArray pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+  GoTimeStatus = BS->FreePool(Txt_FileInfo);
+  if(EFI_ERROR(GoTimeStatus))
+  {
+    Print(L"Error freeing Txt_FileInfo pool. 0x%llx\r\n", GoTimeStatus);
+    return GoTimeStatus;
+  }
+
+///
+
+  EFI_FILE *KernelFile;
+
   // Open the kernel file from current drive root and point to it with KernelFile
-	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, L"Kernel64", EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
+	GoTimeStatus = CurrentDriveRoot->Open(CurrentDriveRoot, &KernelFile, KernelPath, EFI_FILE_MODE_READ, EFI_FILE_READ_ONLY);
 	if (EFI_ERROR(GoTimeStatus))
   {
-		ST->ConOut->OutputString(ST->ConOut, L"Kernel64 file is missing\r\n");
+		Print(L"%s file is missing\r\n", KernelPath);
 		return GoTimeStatus;
 	}
 
@@ -122,6 +425,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
 
   // Get address of start of file
+  // ...Don't need to do this
 //  UINT64 FileStartPosition;
 //  KernelFile->GetPosition(KernelFile, &FileStartPosition);
 //  Keywait(L"Kernel file start position acquired.\r\n");
@@ -186,15 +490,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   UINTN size = sizeof(IMAGE_DOS_HEADER);
   IMAGE_DOS_HEADER DOSheader;
 
-// Don't need to allocate memory for non-pointer DOS headers
-/*
-  GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&DOSheader);
-  if(EFI_ERROR(GoTimeStatus))
-  {
-    Print(L"DOS Header AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-    return GoTimeStatus;
-  }
-*/
   GoTimeStatus = KernelFile->Read(KernelFile, &size, &DOSheader);
   if(EFI_ERROR(GoTimeStatus))
   {
@@ -234,16 +529,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 //    size = 4 + IMAGE_SIZEOF_FILE_HEADER + IMAGE_SIZEOF_NT_OPTIONAL64_HEADER; // 264 bytes
     size = sizeof(IMAGE_NT_HEADERS64);
     IMAGE_NT_HEADERS64 PEHeader;
-
-// Don't need to allocate memory for non-pointer PE headers
-/*
-    GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&PEHeader);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"PE Header AllocatePool error. 0x%llx\r\n", GoTimeStatus);
-      return GoTimeStatus;
-    }
-*/
 
     GoTimeStatus = KernelFile->Read(KernelFile, &size, &PEHeader);
     if(EFI_ERROR(GoTimeStatus))
@@ -294,8 +579,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         UINT64 i; // Iterator
         UINT64 virt_size = 0; // Size of all the data sections combined, which we need to know in order to allocate the right number of pages
         UINT64 Numofsections = (UINT64)PEHeader.FileHeader.NumberOfSections; // Number of sections described at end of PE headers
-        IMAGE_SECTION_HEADER section_headers_table[Numofsections]; // This table is an array of section headers
-        size = IMAGE_SIZEOF_SECTION_HEADER*Numofsections; // Size of section header table in file... Hm...
+        size = IMAGE_SIZEOF_SECTION_HEADER*Numofsections; // Size of section header table in file
 
 //        IMAGE_SECTION_HEADER *section_headers_table_pointer = section_headers_table; // Pointer to the first section header is the same as a pointer to the table
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -304,15 +588,14 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         Keywait(L"\0");
 #endif
 
-        // Doesn't look like section_headers_table needs to be explicitly allocated memory
-      /*
-        GoTimeStatus = ST->BootServices->AllocatePool(EfiLoaderData, size, (void**)&section_headers_table);
+        IMAGE_SECTION_HEADER * section_headers_table; // This table is an array of section headers
+
+        GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, size, (void**)&section_headers_table);
         if(EFI_ERROR(GoTimeStatus))
         {
           Print(L"Section headers table AllocatePool error. 0x%llx\r\n", GoTimeStatus);
           return GoTimeStatus;
         }
-      */
 
         // Cursor is already at the end of the PE Header
         GoTimeStatus = KernelFile->Read(KernelFile, &size, &section_headers_table[0]); // Run right over the section table, it should be exactly the size to hold this data
@@ -349,12 +632,13 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         // In any event, this has to be loaded from FAT32. You can't have a file larger than 4GB (32-bit max) on FAT32 anyways.
         // A 4GB bootloader, or even kernel, would be insane. You'd need to use a 64-bit linux ELF for those.
 
-        UINT64 pages = (virt_size + EFI_PAGE_MASK) >> EFI_PAGE_SHIFT; // To get number of pages (typically 4KB per), rounded up
+        UINT64 pages = EFI_SIZE_TO_PAGES(virt_size); // To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
         Print(L"Expected ImageBase: 0x%llx\r\n", PEHeader.OptionalHeader.ImageBase);
-
+        Keywait(L"\0");
   #ifdef MEMMAP_PRINT_ENABLED
         print_memmap();
         Keywait(L"Done printing MemMap.\r\n");
@@ -380,10 +664,19 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
 #ifdef PE_LOADER_DEBUG_ENABLED
         Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
 #endif
 
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef PE_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -449,9 +742,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   // Get a new address if it is
                   NewAddress = ActuallyFreeAddress(pages, NewAddress);
                 }
-                else if(NewAddress >= 0x100000000) // Need to stay under 4GB
+                else if(NewAddress >= 0x100000000) // Need to stay under 4GB for PE32+
                 {
-                  NewAddress = -1;
+                  NewAddress = ~0ULL;
                 }
               }
               else if(EFI_ERROR(GoTimeStatus))
@@ -460,7 +753,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -478,7 +771,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -508,7 +801,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -522,7 +815,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                     }
                     else if(NewAddress >= 0x100000000) // Need to stay under 4GB
                     {
-                      NewAddress = -1; // Get out of this loop, do a more thorough check
+                      NewAddress = ~0ULL; // Get out of this loop, do a more thorough check
                       break;
                     }
                     // This loop will run until we get a good address (shouldn't be more than once, if ever)
@@ -548,7 +841,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -592,7 +885,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -646,8 +939,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       }
                       else if(NewAddress >= 0x100000000) // Need to stay under 4GB
                       {
-                        Print(L"Too much junk below 4GB. Complain to your motherboard vendor.\r\n");
-                        NewAddress = -1; // The BIOS vendor didn't read the spec. RMA your motherboard.
+                        Print(L"Too much junk below 4GB. Complain to your motherboard vendor.\r\nTry using a 64-bit ELF or MACH-O kernel binary instead of PE32+.\r\n");
+                        NewAddress = ActuallyFreeAddress(pages, 0); // Either the BIOS vendor didn't read the spec or you need to use RAM space above 4GB.
                       }
                     }
                     else if(EFI_ERROR(GoTimeStatus))
@@ -656,9 +949,10 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(AllocatedMemory == -1)
+                    if(NewAddress == ~0ULL)
                     {
-                      // Well, darn. Something's up with the system memory.
+                      // Well, darn. Something's up with the system memory. Maybe you have 4GB or less?
+                      Print(L"Do you have 4GB or less of RAM? Looks like you need > 4GB for this.\r\nThat also means you'll need to use 64-bit ELF or MACH-O kernels.\r\n");
                       return GoTimeStatus;
                     }
 
@@ -678,11 +972,19 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef PE_LOADER_DEBUG_ENABLED
-        Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
         Keywait(L"Allocate Pages passed.\r\n");
 
   #ifdef MEMMAP_PRINT_ENABLED
@@ -760,12 +1062,23 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
         }
 
+        // Done with section_headers_table
+        if(section_headers_table)
+        {
+          GoTimeStatus = BS->FreePool(section_headers_table);
+          if(EFI_ERROR(GoTimeStatus))
+          {
+            Print(L"Error freeing section_headers_table pool. 0x%llx\r\n", GoTimeStatus);
+            Keywait(L"\0");
+          }
+        }
+
 #ifdef PE_LOADER_DEBUG_ENABLED
         Keywait(L"\nLoad file sections into allocated pages passed.\r\n");
 #endif
 
         // Apply relocation fixes, if necessary
-        if(AllocatedMemory != PEHeader.OptionalHeader.ImageBase && PEHeader.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC) // Need to perform relocations
+        if((AllocatedMemory != PEHeader.OptionalHeader.ImageBase) && (PEHeader.OptionalHeader.NumberOfRvaAndSizes > IMAGE_DIRECTORY_ENTRY_BASERELOC)) // Need to perform relocations
         {
           IMAGE_BASE_RELOCATION * Relocation_Directory_Base;
           IMAGE_BASE_RELOCATION * RelocTableEnd;
@@ -791,6 +1104,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             Print(L"AllocatedMemory: 0x%llx, ImageBase: 0x%llx, Delta: -0x%llx\r\n", AllocatedMemory, PEHeader.OptionalHeader.ImageBase, delta);
 #endif
           }
+
           UINT64 NumRelocationsPerChunk;
 
           for(;(Relocation_Directory_Base->SizeOfBlock) && (Relocation_Directory_Base < RelocTableEnd);)
@@ -801,7 +1115,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             Print(L"Rel_dir_base: 0x%llx, RelTableEnd: 0x%llx\r\n", Relocation_Directory_Base, RelocTableEnd);
 #endif
 
-            EFI_PHYSICAL_ADDRESS page = AllocatedMemory + (UINT64)Relocation_Directory_Base->VirtualAddress; //This virtual address is page-specific, and needs to be offset by Header_memory
+            EFI_PHYSICAL_ADDRESS page = AllocatedMemory + (UINT64)Relocation_Directory_Base->VirtualAddress; // This virtual address is page-specific, and needs to be offset by Header_memory
             UINT16* DataToFix = (UINT16*)((UINT8*)Relocation_Directory_Base + IMAGE_SIZEOF_BASE_RELOCATION); // The base relocation size is 8 bytes (64 bits)
             NumRelocationsPerChunk = (Relocation_Directory_Base->SizeOfBlock - IMAGE_SIZEOF_BASE_RELOCATION)/sizeof(UINT16);
 
@@ -813,7 +1127,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             for(i = 0; i < NumRelocationsPerChunk; i++)
             {
-              if(DataToFix[i] >> EFI_PAGE_SHIFT == 0)
+              if(DataToFix[i] >> EFI_PAGE_SHIFT == IMAGE_REL_BASED_ABSOLUTE) // IMAGE_REL_BASED_ABSOLUTE == 0
               {
                 // Nothing, this is a padding area
 
@@ -821,7 +1135,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 Print(L"%llu of %llu -- Padding Area\r\n", i+1, NumRelocationsPerChunk);
 #endif
               }
-              else if (DataToFix[i] >> EFI_PAGE_SHIFT == 10) // 64-bit offset relocation only, check uppper 4 bits of each DataToFix entry
+              else if (DataToFix[i] >> EFI_PAGE_SHIFT == IMAGE_REL_BASED_DIR64) // IMAGE_REL_BASED_DIR64 == 10: Only doing 64-bit offset relocation (that's all that's needed for these PE32+ files), so check uppper 4 bits of each DataToFix entry
               {
 
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -890,6 +1204,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         }
 
         //AddressOfEntryPoint should be a 32-bit relative mem address of the entry point of the kernel
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + (UINT64)PEHeader.OptionalHeader.AddressOfEntryPoint;
 
 #ifdef PE_LOADER_DEBUG_ENABLED
@@ -904,7 +1219,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) only.\r\n");
         return GoTimeStatus;
       }
     }
@@ -920,7 +1235,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       Keywait(L"Well, if you insist...\r\n");
 
       size = (UINT64)(512*DOSheader.e_cp + DOSheader.e_cblp - 16*DOSheader.e_cparhdr); // Bytes of MZ load module
-      UINT64 pages = (size + EFI_PAGE_MASK) >> EFI_PAGE_SHIFT;
+      UINT64 pages = EFI_SIZE_TO_PAGES(size);
+      KernelPages = pages;
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
       Print(L"e_cp: %hu, e_cblp: %hu, e_cparhdr: %hu\r\n", DOSheader.e_cp, DOSheader.e_cblp, DOSheader.e_cparhdr);
@@ -935,12 +1251,20 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         return GoTimeStatus;
       }
 
+#ifdef DOS_LOADER_DEBUG_ENABLED
+        Print(L"DOSMem location: 0x%llx\r\n", DOSMem);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
       // Zero the allocated pages
-//      ZeroMem(&DOSMem, (pages << EFI_PAGE_SHIFT));
+      ZeroMem((VOID*)DOSMem, (pages << EFI_PAGE_SHIFT));
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
-      Print(L"DOSMem location: 0x%llx\r\n", DOSMem);
-      Keywait(L"Allocate Pages passed.\r\n");
+      Keywait(L"MemZeroed and Allocate Pages passed.\r\n");
 #endif
 
       GoTimeStatus = KernelFile->SetPosition(KernelFile, (UINT64)DOSheader.e_cparhdr*16); // Load module is right after the header
@@ -963,8 +1287,6 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         return GoTimeStatus;
       }
 
-      // mov relocated e_sp to %rsp
-      // Normally, entry point is in e_ip...
 #ifdef DOS_LOADER_DEBUG_ENABLED
       Print(L"\r\nVerify:\r\nDOSMem: 0x%llx\r\nData there (first 16 bytes): 0x%016llx%016llx\r\n", DOSMem, *(EFI_PHYSICAL_ADDRESS*)(DOSMem + 8), *(EFI_PHYSICAL_ADDRESS*)DOSMem); // Print the first 128 bits of data at that address to compare
       Print(L"Last 16 bytes: 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(DOSMem + size - 8), *(EFI_PHYSICAL_ADDRESS*)(DOSMem + size - 16));
@@ -972,6 +1294,10 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       Keywait(L"\0");
 #endif
 
+      // mov relocated e_sp to %rsp
+
+      // Normally, entry point is in e_ip...
+      KernelBaseAddress = DOSMem;
       Header_memory = DOSMem + (UINT64)DOSheader.e_ip*16;
 
 #ifdef DOS_LOADER_DEBUG_ENABLED
@@ -1045,10 +1371,18 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
         UINT64 i; // Iterator
         UINT64 virt_size = 0; // Virtual address max
-        UINT64 virt_min = -1; // Minimum virtual address for page number calculation, -1 wraps around to max 64-bit number
+        UINT64 virt_min = ~0ULL; // Minimum virtual address for page number calculation, -1 wraps around to max 64-bit number
         UINT64 Numofprogheaders = (UINT64)ELF64header.e_phnum;
-        Elf64_Phdr program_headers_table[Numofprogheaders];
-        size = Numofprogheaders*(UINT64)ELF64header.e_phentsize; // Size of all program headers combined
+        size = Numofprogheaders * (UINT64)ELF64header.e_phentsize; // Size of all program headers combined
+
+        Elf64_Phdr * program_headers_table;
+
+        GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, size, (void**)&program_headers_table);
+        if(EFI_ERROR(GoTimeStatus))
+        {
+          Print(L"Program headers table AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+          return GoTimeStatus;
+        }
 
         GoTimeStatus = KernelFile->SetPosition(KernelFile, ELF64header.e_phoff); // Go to program headers
         if(EFI_ERROR(GoTimeStatus))
@@ -1063,7 +1397,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           return GoTimeStatus;
         }
 
-        // Only want to include PT_LOAD segments
+        // Only want to include PT_LOAD segments for page allocation, PT_DYNAMIC is used for relocations later
         for(i = 0; i < Numofprogheaders; i++) // Go through each section of the "sections" section to get the address boundary of the last section
         {
           Elf64_Phdr *specific_program_header = &program_headers_table[i];
@@ -1086,7 +1420,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 #endif
 
         // Virt_min is technically also the base address of the loadable segments
-        UINT64 pages = (virt_size - virt_min + EFI_PAGE_MASK) >> EFI_PAGE_SHIFT; //To get number of pages (typically 4KB per), rounded up
+        UINT64 pages = EFI_SIZE_TO_PAGES(virt_size - virt_min); //To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
@@ -1104,8 +1439,21 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           return GoTimeStatus;
         }
 
+#ifdef ELF_LOADER_DEBUG_ENABLED
+        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -1176,7 +1524,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -1194,7 +1542,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -1224,7 +1572,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -1260,7 +1608,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -1300,7 +1648,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -1360,7 +1708,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(AllocatedMemory == -1)
+                    if(AllocatedMemory == ~0ULL)
                     {
                       // Well, darn. Something's up with the system memory.
                       return GoTimeStatus;
@@ -1382,7 +1730,16 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
@@ -1416,7 +1773,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             GoTimeStatus = KernelFile->SetPosition(KernelFile, specific_program_header->p_offset); // p_offset is a UINT64 relative to the beginning of the file, just like Read() expects!
             if(EFI_ERROR(GoTimeStatus))
             {
-              Print(L"Program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
+              Print(L"PT_LOAD program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
               return GoTimeStatus;
             }
 
@@ -1425,7 +1782,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
               GoTimeStatus = KernelFile->Read(KernelFile, &RawDataSize, (EFI_PHYSICAL_ADDRESS*)SectionAddress); // (void*)SectionAddress
               if(EFI_ERROR(GoTimeStatus))
               {
-                Print(L"Program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
+                Print(L"PT_LOAD program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
                 return GoTimeStatus;
               }
             }
@@ -1436,12 +1793,162 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             // "Next 16 bytes" should be 0 unless last section
 #endif
           }
+          else if((specific_program_header->p_type == PT_DYNAMIC) && (specific_program_header->p_filesz != 0)) // If there's a PT_DYNAMIC section, it's always after PT_LOADs. Relocations thus will never be applied until after the PT_LOAD sections have been loaded.
+          {
+#ifdef ELF_LOADER_DEBUG_ENABLED
+          Keywait(L"Found a PT_DYNAMIC section...\r\n");
+#endif
+            // Check if there are relocations
+            UINTN Dyn_array_size = specific_program_header->p_memsz; // For PT_DYNAMIC, memsz and filesz should always be the same, though if memsz is 0 then that probably means the section should be ignored
+            Elf64_Dyn * Elf64_dynamic_array;
+
+            GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, Dyn_array_size, (void**)&Elf64_dynamic_array);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program headers table AllocatePool error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            Print(L"PT_DYNAMIC area allocated, Elf64_dynamic_array: 0x%llx, Dyn_array_size: %llu Bytes in memory\r\n", (UINT64)Elf64_dynamic_array, Dyn_array_size);
+            Print(L"PT_DYNAMIC size in file: %llu Bytes\r\n", specific_program_header->p_filesz);
+            Keywait(L"About to read section into memory...\r\n");
+#endif
+            GoTimeStatus = KernelFile->SetPosition(KernelFile, specific_program_header->p_offset); // p_offset is a UINT64 relative to the beginning of the file, just like Read() expects!
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program segment SetPosition error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+
+            // p_filesz was already checked for 0, so it doesn't need to be checked again here
+            GoTimeStatus = KernelFile->Read(KernelFile, &(specific_program_header->p_filesz), (void*)Elf64_dynamic_array);
+            if(EFI_ERROR(GoTimeStatus))
+            {
+              Print(L"PT_DYNAMIC program segment read error (ELF). 0x%llx\r\n", GoTimeStatus);
+              return GoTimeStatus;
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            Print(L"PT_DYNAMIC Data read.\r\n");
+            Keywait(L"\0");
+#endif
+            Elf64_Dyn * Dyn_array_end = (Elf64_Dyn *) ((UINT64)Elf64_dynamic_array + Dyn_array_size);
+
+            UINT64 Rela_table_size = 0;
+            UINT64 Rela_table_entry_size = 0;
+            Elf64_Rela * Rela_table = (Elf64_Rela*)~0ULL;
+
+            // Go through Elf64_Dyn entries and find DT_RELA (address of relocation table in file), DT_RELASZ (relocation table size), and DT_RELAENT (relocation entry size)
+            for(Elf64_Dyn * Dyn_array_iter = Elf64_dynamic_array; Dyn_array_iter < Dyn_array_end; Dyn_array_iter++)
+            {
+              if(Dyn_array_iter->d_tag == DT_RELA)
+              {
+
+                Rela_table = (Elf64_Rela*)(AllocatedMemory + Dyn_array_iter->d_un.d_ptr);
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table address found: 0x%llx, in memory at: 0x%llx\r\n", Dyn_array_iter->d_un.d_ptr, AllocatedMemory + Dyn_array_iter->d_un.d_ptr);
+#endif
+              }
+              else if(Dyn_array_iter->d_tag == DT_RELASZ)
+              {
+
+                Rela_table_size = Dyn_array_iter->d_un.d_val;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table size found: %llu\r\n", Rela_table_size);
+#endif
+              }
+              else if(Dyn_array_iter->d_tag == DT_RELAENT)
+              {
+
+                Rela_table_entry_size = Dyn_array_iter->d_un.d_val;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                Print(L"Relocation table entry size found: %llu\r\n", Rela_table_entry_size);
+#endif
+              }
+            } // end for
+
+            if( (Rela_table != (Elf64_Rela*)~0ULL) ) // Pointer found
+            {
+              // Relocations need to be done
+              if((Rela_table_size == 0) || (Rela_table_entry_size == 0))
+              {
+                Print(L"Bad ELF64: Incomplete relocation table information.\r\n");
+                return EFI_LOAD_ERROR;
+              }
+              // Time to relocate!
+
+              UINT64 Num_Rela = Rela_table_size / Rela_table_entry_size;
+#ifdef ELF_LOADER_DEBUG_ENABLED
+              Print(L"Number of relocations to perform: %llu\r\n", Num_Rela);
+              Keywait(L"About to perform relocations...\r\n");
+#endif
+
+              for(UINT64 Rela_iter = 0; Rela_iter < Num_Rela; Rela_iter++)
+              {
+                if(ELF64_R_TYPE(Rela_table[Rela_iter].r_info) == R_X86_64_RELATIVE)
+                {
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                  Print(L"%llu of %llu, Rela_table[%llu] -- Offset: 0x%llx, Info: 0x%llx, Addend 0x%llx\r\n", Rela_iter+1, Num_Rela, Rela_iter, Rela_table[Rela_iter].r_offset, Rela_table[Rela_iter].r_info, Rela_table[Rela_iter].r_addend);
+                  Print(L"Data at offset: 0x%llx\r\n", *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset));
+#endif
+
+                  *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset) = AllocatedMemory + Rela_table[Rela_iter].r_addend;
+
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                  Print(L"Corrected data at offset: 0x%llx\r\n", *(UINT64*)(AllocatedMemory + Rela_table[Rela_iter].r_offset));
+                  if( (!(Rela_iter % 20)) && (Rela_iter > 0)) // There could be thousands. Mod 20 gives 20 lines per keywait.
+                  {
+                    Keywait(L"\0");
+                  }
+#endif
+                }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+                else
+                {
+                  Print(L"Not an x86_64 relative relocation. Other relocation types are not supported.\r\nUnsafe to continue because things will break (ELF).\r\n");
+                  return EFI_LOAD_ERROR;
+                }
+#endif
+              } // end for
+            }
+#ifdef ELF_LOADER_DEBUG_ENABLED
+            else
+            {
+              // It's also possible that there just isn't a relocation table, which is fine.
+              Print(L"Conveniently, no relocation table was found (ELF). Moving on...\r\n");
+            }
+#endif
+
+            // Done with PT_DYNAMIC section
+            if(Elf64_dynamic_array)
+            {
+              GoTimeStatus = BS->FreePool(Elf64_dynamic_array);
+              if(EFI_ERROR(GoTimeStatus))
+              {
+                Print(L"Error freeing Elf64_dynamic_array pool. 0x%llx\r\n", GoTimeStatus);
+                Keywait(L"\0");
+              }
+            }
+          }
           else
           {
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
-            Print(L"Not a PT_LOAD section. Type: 0x%x\r\n", specific_program_header->p_type);
+            Print(L"Not a PT_LOAD or PT_DYNAMIC section. Type: 0x%x\r\n", specific_program_header->p_type);
 #endif
+          }
+        }
+
+        // Done with program_headers_table
+        if(program_headers_table)
+        {
+          GoTimeStatus = BS->FreePool(program_headers_table);
+          if(EFI_ERROR(GoTimeStatus))
+          {
+            Print(L"Error freeing program headers table pool. 0x%llx\r\n", GoTimeStatus);
+            Keywait(L"\0");
           }
         }
 
@@ -1452,6 +1959,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         // Link kernel with -static-pie and there's no need for relocations beyond the base-relative ones just done. YUS!
 
         // e_entry should be a 64-bit relative memory address, and gives the kernel's entry point
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + ELF64header.e_entry;
 
 #ifdef ELF_LOADER_DEBUG_ENABLED
@@ -1466,7 +1974,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) ELFs only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) ELFs only.\r\n");
         return GoTimeStatus;
       }
     }
@@ -1520,14 +2028,22 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
         UINT64 i; // Iterator
         UINT64 virt_size = 0;
-        UINT64 virt_min = -1; // Wraps around to max 64-bit number
+        UINT64 virt_min = ~0ULL; // Wraps around to max 64-bit number
         UINT64 Numofcommands = (UINT64)MACheader.ncmds;
-        //load_command load_commands_table[Numofcommands]; // commands are variably sized. Dammit Apple!
+        //load_command load_commands_table[Numofcommands]; // commands are variably sized.
         size = (UINT64)MACheader.sizeofcmds; // Size of all commands combined. Well, that's convenient!
-        char commands_buffer[size]; // *grumble grumble*
         UINT64 current_spot = 0;
 
-// Go to load commands, which is right after the mach_header
+        CHAR8 * commands_buffer; // *grumble grumble*
+
+        GoTimeStatus = ST->BootServices->AllocatePool(EfiBootServicesData, size, (void**)&commands_buffer);
+        if(EFI_ERROR(GoTimeStatus))
+        {
+          Print(L"Commands buffer AllocatePool error. 0x%llx\r\n", GoTimeStatus);
+          return GoTimeStatus;
+        }
+
+// Go to load commands, which is right after the mach_header (NOTE: cursor's already there)
 /*
         GoTimeStatus = KernelFile->SetPosition(KernelFile, sizeof(MACheader));
         if(EFI_ERROR(GoTimeStatus))
@@ -1577,7 +2093,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
         Keywait(L"Load commands buffer passed.\r\n");
 #endif
 
-        UINT64 pages = (virt_size - virt_min + EFI_PAGE_MASK) >> EFI_PAGE_SHIFT; // To get number of pages (typically 4KB per), rounded up
+        UINT64 pages = EFI_SIZE_TO_PAGES(virt_size - virt_min); // To get number of pages (typically 4KB per), rounded up
+        KernelPages = pages;
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
         Print(L"pages: %llu\r\n", pages);
@@ -1596,8 +2113,21 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           return GoTimeStatus;
         }
 
+#ifdef MACH_LOADER_DEBUG_ENABLED
+        Print(L"AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #ifdef MEMMAP_PRINT_ENABLED
+        print_memmap();
+        Keywait(L"Done printing MemMap.\r\n");
+  #endif
+        Keywait(L"Zeroing\r\n");
+#endif
+
         // Zero the allocated pages
-//        ZeroMem(&AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+        ZeroMem((VOID*)AllocatedMemory, (pages << EFI_PAGE_SHIFT));
+
+#ifdef MACH_LOADER_DEBUG_ENABLED
+        Keywait(L"MemZeroed\r\n");
+#endif
 
 #ifndef MEMORY_CHECK_DISABLED
         // If that memory isn't actually free due to weird firmware behavior...
@@ -1668,7 +2198,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                 return GoTimeStatus;
               }
 
-              if(NewAddress == -1)
+              if(NewAddress == ~0ULL)
               {
                 // If you get this, you had no memory free anywhere.
                 Print(L"No memory marked as EfiConventionalMemory...\r\n");
@@ -1686,7 +2216,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
             AllocatedMemory = NewAddress;
 
             // Verify it's empty
-            while((NewAddress != -1) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
+            while((NewAddress != ~0ULL) && VerifyZeroMem(pages << EFI_PAGE_SHIFT, AllocatedMemory)) // Loop this in case the firmware is really screwed
             { // It's not empty :(
 
               // Sure hope there aren't any other page-aligned kernel images floating around in memory marked as free
@@ -1716,7 +2246,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
                 // Allocate a new address
                 GoTimeStatus = EFI_NOT_FOUND;
-                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != -1))
+                while((GoTimeStatus != EFI_SUCCESS) && (NewAddress != ~0ULL))
                 {
                   if(GoTimeStatus == EFI_NOT_FOUND)
                   {
@@ -1752,7 +2282,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 
             // Ran out of easy addresses, time for a more thorough check
             // Hopefully no one ever gets here
-            if(AllocatedMemory == -1)
+            if(AllocatedMemory == ~0ULL)
             { // NewAddress is also -1
 
   #ifdef BY_PAGE_SEARCH_DISABLED // Set this to disable ByPage searching
@@ -1792,7 +2322,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                   return GoTimeStatus;
                 }
 
-                if(NewAddress == -1)
+                if(NewAddress == ~0ULL)
                 {
                   // If you somehow get this, you really had no memory free anywhere.
                   Print(L"Hmm... How did you get here?\r\n");
@@ -1853,7 +2383,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
                       return GoTimeStatus;
                     }
 
-                    if(AllocatedMemory == -1)
+                    if(AllocatedMemory == ~0ULL)
                     {
                       // Well, darn. Something's up with the system memory.
                       return GoTimeStatus;
@@ -1875,7 +2405,16 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   #endif
           } // End discovery of viable memory address (else)
           // Can move on now
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"New AllocatedMemory location: 0x%llx\r\n", AllocatedMemory);
+  #endif
         } // End VerifyZeroMem buggy firmware workaround (outermost if)
+        else
+        {
+  #ifdef MEMORY_CHECK_INFO
+          Print(L"Allocated memory was zeroed OK\r\n");
+  #endif
+        }
 #endif
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
@@ -1960,11 +2499,23 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
           current_spot += (UINT64)specific_load_command->cmdsize;
         }
 
+        // Done with commands_buffer
+        if(commands_buffer)
+        {
+          GoTimeStatus = BS->FreePool(commands_buffer);
+          if(EFI_ERROR(GoTimeStatus))
+          {
+            Print(L"Error freeing commands buffer pool. 0x%llx\r\n", GoTimeStatus);
+            Keywait(L"\0");
+          }
+        }
+
 #ifdef MACH_LOADER_DEBUG_ENABLED
         Keywait(L"\nLoad file sections into allocated pages passed.\r\n");
 #endif
 
         // entrypointoffset should be a 64-bit relative mem address of the entry point of the kernel
+        KernelBaseAddress = AllocatedMemory;
         Header_memory = AllocatedMemory + entrypointoffset;
 
 #ifdef MACH_LOADER_DEBUG_ENABLED
@@ -1984,20 +2535,22 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       else if(MACheader.magic == MH_MAGIC) // Big endian: 0xfeedface
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Hey! 64-bit (x86_64) Mach-Os only. Get yo' 32-bit outta here!\r\n");
+        Print(L"Hey! 64-bit (x86_64) Mach-Os only.\r\n");
         return GoTimeStatus;
       }
       else
       {
         GoTimeStatus = EFI_INVALID_PARAMETER;
-        Print(L"Neither PE32+, ELF, nor Mach-O image supplied as Kernel64. Check the binary.\r\n");
+        Print(L"Neither PE32+, ELF, nor Mach-O image supplied as kernel file. Check the binary.\r\n");
         return GoTimeStatus;
       }
     }
   }
 
 #ifdef FINAL_LOADER_DEBUG_ENABLED
-  Print(L"Header_memory: 0x%llx\r\n", Header_memory);
+  Print(L"Image info:\r\n");
+  Print(L"KernelBaseAddress (image base): 0x%llx\r\n", KernelBaseAddress);
+  Print(L"Header_memory (entry point): 0x%llx\r\n", Header_memory);
   Print(L"Data at Header_memory (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(Header_memory + 8), *(EFI_PHYSICAL_ADDRESS*)Header_memory);
 
   if(KernelisPE)
@@ -2014,6 +2567,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // Integrity check
   for(UINT64 k = 0; k < Graphics->NumberOfFrameBuffers; k++)
   {
+    Print(L"GPU %llu info:\r\n", k);
     Print(L"GPU Mode: %u of %u\r\n", Graphics->GPUArray[k].Mode, Graphics->GPUArray[k].MaxMode - 1);
     Print(L"GPU FB: 0x%016llx\r\n", Graphics->GPUArray[k].FrameBufferBase);
     Print(L"GPU FB Size: 0x%016llx\r\n", Graphics->GPUArray[k].FrameBufferSize);
@@ -2026,60 +2580,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     Keywait(L"\0");
   }
 
-  Print(L"RSDP address: 0x%llx\r\n", RSDPTable);
-  Print(L"Data at RSDP (first 16 bytes): 0x%016llx%016llx\r\n", *(EFI_PHYSICAL_ADDRESS*)(RSDPTable + 8), *(EFI_PHYSICAL_ADDRESS*)RSDPTable);
+  Print(L"Config table address: 0x%llx\r\n", ST->ConfigurationTable);
 #endif
 
-  // All EfiBootServicesData are freed by a call to ExitBootServices().
-  // The only reason these were allocated in the first place was to stop this program from overwriting itself.
-  // There should not be any memory leaks since AllocatePools were defined to be exactly the size they needed to be.
-  // These FreePools also error out.
-/*
-  // Free previously allocated file-related (Kernel64) pools
-  if(KernelFile)
-  {
-    GoTimeStatus = BS->FreePool(KernelFile);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing KernelFile pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(CurrentDriveRoot)
-  {
-    GoTimeStatus = BS->FreePool(CurrentDriveRoot);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing CurrentDriveRoot pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(FileSystem)
-  {
-    GoTimeStatus = BS->FreePool(FileSystem);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing FileSystem pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-  if(LoadedImage)
-  {
-    GoTimeStatus = BS->FreePool(LoadedImage);
-    if(EFI_ERROR(GoTimeStatus))
-    {
-      Print(L"Error freeing LoadedImage pool. 0x%llx\r\n", GoTimeStatus);
-      Keywait(L"\0");
-    }
-  }
-
-#ifdef LOADER_DEBUG_ENABLED
-  Keywait(L"File pools freed.\r\n");
-#endif
-*/
   // Reserve memory for the loader block
   LOADER_PARAMS * Loader_block;
   GoTimeStatus = BS->AllocatePool(EfiLoaderData, sizeof(LOADER_PARAMS), (void**)&Loader_block);
@@ -2090,14 +2593,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   }
 
 #ifdef FINAL_LOADER_DEBUG_ENABLED
-  Print(L"Loader block allocated, size of structure: %llu\r\n", sizeof(LOADER_PARAMS));
+  Print(L"Loader block allocated at 0x%llx, size of structure: %llu\r\n", (UINT64)Loader_block, sizeof(LOADER_PARAMS));
   Keywait(L"About to get MemMap and exit boot services...\r\n");
 #endif
-
-  // Hm... This appears to also reset the video mode to mode 0...
-  // Clear screen while we still have EFI services
-  // ST->ConOut->ClearScreen(ST->ConOut);
-  // Eh, this won't matter once debug statements are turned off, anyways, since the only time user input is required is before GOP SetMode
 
  //----------------------------------------------------------------------------------------------------------------------------------
  //  Get Memory Map and Exit Boot Services
@@ -2112,7 +2610,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // Simple version:
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   // Will error intentionally
-  GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap);
+  MemMapSize += MemMapDescriptorSize;
+  GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
   if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", GoTimeStatus);
@@ -2122,13 +2621,14 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   GoTimeStatus = BS->ExitBootServices(ImageHandle, MemMapKey);
 */
 
-// Below is a better, more complex version
+// Below is a better, but more complex version. EFI Spec recommends this method; apparently some systems need a second call to ExitBootServices.
 
   // Get memory map and exit boot services
   GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
   {
-    GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
+    MemMapSize += MemMapDescriptorSize;
+    GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap); // Allocate pool for MemMap (it should always be resident in memory)
     if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
     {
       Print(L"MemMap AllocatePool error. 0x%llx\r\n", GoTimeStatus);
@@ -2136,11 +2636,20 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     }
     GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
   }
+
   GoTimeStatus = BS->ExitBootServices(ImageHandle, MemMapKey);
+
   if(EFI_ERROR(GoTimeStatus)) // Error! EFI_INVALID_PARAMETER, MemMapKey is incorrect
   {
 
-#ifdef LOADER_DEBUG_ENABLED
+    GoTimeStatus = BS->FreePool(MemMap);
+    if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
+    {
+      Print(L"Error freeing MemMap pool from failed ExitBootServices. 0x%llx\r\n", GoTimeStatus);
+      Keywait(L"\0");
+    }
+
+#ifdef FINAL_LOADER_DEBUG_ENABLED
     Print(L"ExitBootServices #1 failed. 0x%llx, Trying again...\r\n", GoTimeStatus);
     Keywait(L"\0");
 #endif
@@ -2149,7 +2658,8 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
     GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
     if(GoTimeStatus == EFI_BUFFER_TOO_SMALL)
     {
-      GoTimeStatus = BS->AllocatePool(EfiBootServicesData, MemMapSize, (void **)&MemMap);
+      MemMapSize += MemMapDescriptorSize;
+      GoTimeStatus = BS->AllocatePool(EfiLoaderData, MemMapSize, (void **)&MemMap);
       if(EFI_ERROR(GoTimeStatus)) // Error! Wouldn't be safe to continue.
       {
         Print(L"MemMap AllocatePool error #2. 0x%llx\r\n", GoTimeStatus);
@@ -2157,7 +2667,9 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
       }
       GoTimeStatus = BS->GetMemoryMap(&MemMapSize, MemMap, &MemMapKey, &MemMapDescriptorSize, &MemMapDescriptorVersion);
     }
+
     GoTimeStatus = BS->ExitBootServices(ImageHandle, MemMapKey);
+
   }
 
   // This applies to both the simple and larger versions of the above.
@@ -2191,7 +2703,7 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
   // ((EFIAPI void(*)(void)) Header_memory)(); // A void-returning function that takes no arguments. Neat!
 
 /*
-  // No loader block version
+  // Another example entry point jump
   typedef void (EFIAPI *EntryPointFunction)(EFI_MEMORY_DESCRIPTOR * Memory_Map, EFI_RUNTIME_SERVICES* RTServices, EFI_GRAPHICS_OUTPUT_PROTOCOL_MODE* GPU_Mode, EFI_FILE_INFO* FileMeta, void * RSDP); // Placeholder names for jump
   EntryPointFunction EntryPointPlaceholder = (EntryPointFunction)(Header_memory);
   EntryPointPlaceholder(MemMap, RT, &Graphics, FileInfo, RSDPTable);
@@ -2200,20 +2712,60 @@ EFI_STATUS GoTime(EFI_HANDLE ImageHandle, GPU_CONFIG * Graphics, void *RSDPTable
 /*
   // Loader block defined in header
   typedef struct {
-    EFI_MEMORY_DESCRIPTOR  *Memory_Map;
-    EFI_RUNTIME_SERVICES   *RTServices;
-    GPU_CONFIG             *GPU_Configs;
-    EFI_FILE_INFO          *FileMeta;
-    void                   *RSDP;
+    UINT32                    UEFI_Version;                   // The system UEFI version
+    UINT32                    Bootloader_MajorVersion;        // The major version of the bootloader
+    UINT32                    Bootloader_MinorVersion;        // The minor version of the bootloader
+
+    UINT32                    Memory_Map_Descriptor_Version;  // The memory descriptor version
+    UINTN                     Memory_Map_Descriptor_Size;     // The size of an individual memory descriptor
+    EFI_MEMORY_DESCRIPTOR    *Memory_Map;                     // The system memory map as an array of EFI_MEMORY_DESCRIPTOR structs
+    UINTN                     Memory_Map_Size;                // The total size of the system memory map
+
+    EFI_PHYSICAL_ADDRESS      Kernel_BaseAddress;             // The base memory address of the loaded kernel file
+    UINTN                     Kernel_Pages;                   // The number of pages (1 page == 4096 bytes) allocated for the kernel file
+
+    CHAR16                   *ESP_Root_Device_Path;           // A UTF-16 string containing the drive root of the EFI System Partition as converted from UEFI device path format
+    UINT64                    ESP_Root_Size;                  // The size (in bytes) of the above ESP root string
+    CHAR16                   *Kernel_Path;                    // A UTF-16 string containing the kernel's file path relative to the EFI System Partition root (it's the first line of Kernel64.txt)
+    UINT64                    Kernel_Path_Size;               // The size (in bytes) of the above kernel file path
+    CHAR16                   *Kernel_Options;                 // A UTF-16 string containing various load options (it's the second line of Kernel64.txt)
+    UINT64                    Kernel_Options_Size;            // The size (in bytes) of the above load options string
+
+    EFI_RUNTIME_SERVICES     *RTServices;                     // UEFI Runtime Services
+    GPU_CONFIG               *GPU_Configs;                    // Information about available graphics output devices; see below GPU_CONFIG struct for details
+    EFI_FILE_INFO            *FileMeta;                       // Kernel file metadata
+
+    EFI_CONFIGURATION_TABLE  *ConfigTables;                   // UEFI-installed system configuration tables (ACPI, SMBIOS, etc.)
+    UINTN                     Number_of_ConfigTables;         // The number of system configuration tables
   } LOADER_PARAMS;
 */
 
   // This shouldn't modify the memory map.
+  Loader_block->UEFI_Version = UEFIVer;
+  Loader_block->Bootloader_MajorVersion = MAJOR_VER;
+  Loader_block->Bootloader_MinorVersion = MINOR_VER;
+
+  Loader_block->Memory_Map_Descriptor_Version = MemMapDescriptorVersion;
+  Loader_block->Memory_Map_Descriptor_Size = MemMapDescriptorSize;
   Loader_block->Memory_Map = MemMap;
+  Loader_block->Memory_Map_Size = MemMapSize;
+
+  Loader_block->Kernel_BaseAddress = KernelBaseAddress;
+  Loader_block->Kernel_Pages = KernelPages;
+
+  Loader_block->ESP_Root_Device_Path = ESPRoot;
+  Loader_block->ESP_Root_Size = ESPRootSize;
+  Loader_block->Kernel_Path = KernelPath;
+  Loader_block->Kernel_Path_Size = KernelPathSize;
+  Loader_block->Kernel_Options = Cmdline;
+  Loader_block->Kernel_Options_Size = CmdlineSize;
+
   Loader_block->RTServices = RT;
   Loader_block->GPU_Configs = Graphics;
   Loader_block->FileMeta = FileInfo;
-  Loader_block->RSDP = RSDPTable;
+
+  Loader_block->ConfigTables = SysCfgTables;
+  Loader_block->Number_of_ConfigTables = NumSysCfgTables;
 
   // Jump to entry point, and WE ARE LIVE!!
   if(KernelisPE)
