@@ -1428,7 +1428,7 @@ FloatToString (
     /*
      * Keep fractional part.
      */
-    float f = (float)(v - i);
+    double f = (double)(v - i);
     if (f < 0) f = -f;
 
 
@@ -1448,7 +1448,7 @@ FloatToString (
     /*
      * Fractional digits.
      */
-    while ((float)(INTN)f != f)
+    while ((double)(INTN)f != f)
     {
       f *= 10;
     }
