@@ -61,7 +61,12 @@ Returns:
 
     Status = uefi_call_wrapper(BS->LocateDevicePath, 3, &DeviceIoProtocol, &DevicePath, &Handle);
     if (!EFI_ERROR(Status)) {
+#if  USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
         Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handle, &DeviceIoProtocol, (VOID*)GlobalIoFncs);
+#else
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handle, &DeviceIoProtocol, (VOID*)GlobalIoFncs,
+            NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+#endif
     }
 
     ASSERT (!EFI_ERROR(Status));

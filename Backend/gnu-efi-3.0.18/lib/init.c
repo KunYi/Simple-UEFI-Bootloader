@@ -31,16 +31,16 @@ InitializeLib (
 Routine Description:
 
     Initializes EFI library for use
-    
+
 Arguments:
 
     Firmware's EFI system table
-    
+
 Returns:
 
     None
 
---*/ 
+--*/
 {
     EFI_LOADED_IMAGE        *LoadedImage;
     EFI_STATUS              Status;
@@ -70,6 +70,8 @@ Returns:
     //
 
     if (ImageHandle) {
+#if USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
+    // This is an legacy EFI 1.0 function
 	Status = uefi_call_wrapper(
 	    BS->HandleProtocol,
 	    3,
@@ -77,7 +79,19 @@ Returns:
 	    &LoadedImageProtocol,
 	    (VOID*)&LoadedImage
 	);
-
+#else
+        // This is a UEFI 2.x function
+        Status = uefi_call_wrapper(
+            BS->OpenProtocol,
+            6,
+            ImageHandle,
+            &LoadedImageProtocol,
+            (VOID*)&LoadedImage,
+            NULL,
+            NULL,
+            EFI_OPEN_PROTOCOL_GET_PROTOCOL
+        );
+#endif
 	if (!EFI_ERROR(Status)) {
 	    PoolAllocationType = LoadedImage->ImageDataType;
 	}
@@ -127,7 +141,12 @@ InitializeUnicodeSupport (
     //
 
     for (Index=0; Index < NoHandles; Index++) {
+#if USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
         Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], &UnicodeCollationProtocol, (VOID*)&Ui);
+#else
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handles[Index], &UnicodeCollationProtocol, (VOID*)&Ui,
+            NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+#endif
         if (EFI_ERROR(Status)) {
             continue;
         }

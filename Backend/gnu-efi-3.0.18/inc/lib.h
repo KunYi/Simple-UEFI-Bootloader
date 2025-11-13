@@ -20,6 +20,8 @@ Revision History
 #pragma GCC visibility push(hidden)
 #endif
 
+#define USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL    (0)
+
 #include "efi.h"
 #include "efilib.h"
 #include "efirtlib.h"

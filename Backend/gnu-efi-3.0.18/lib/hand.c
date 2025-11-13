@@ -32,7 +32,7 @@ LibLocateProtocol (
     UINTN           NumberHandles, Index;
     EFI_HANDLE      *Handles;
 
-    
+
     *Interface = NULL;
     Status = LibLocateHandle (ByProtocol, ProtocolGuid, NULL, &NumberHandles, &Handles);
     if (EFI_ERROR(Status)) {
@@ -41,7 +41,12 @@ LibLocateProtocol (
     }
 
     for (Index=0; Index < NumberHandles; Index++) {
+#if USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
         Status = uefi_call_wrapper(BS->HandleProtocol, 3, Handles[Index], ProtocolGuid, Interface);
+#else
+        Status = uefi_call_wrapper(BS->OpenProtocol, 6, Handles[Index], ProtocolGuid, Interface,
+            NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+#endif
         if (!EFI_ERROR(Status)) {
             break;
         }
@@ -82,14 +87,14 @@ LibLocateHandle (
     while (GrowBuffer (&Status, (VOID **) Buffer, BufferSize)) {
 
         Status = uefi_call_wrapper(
-			BS->LocateHandle,
-			5,
-                        SearchType,
-                        Protocol,
-                        SearchKey,
-                        &BufferSize,
-                        *Buffer
-                        );
+            BS->LocateHandle,
+            5,
+            SearchType,
+            Protocol,
+            SearchKey,
+            &BufferSize,
+            *Buffer
+        );
 
     }
 
@@ -141,14 +146,14 @@ LibLocateHandleByDiskSignature (
         //
 
         Status = uefi_call_wrapper(
-			BS->LocateHandle,
-			5,
-                        ByProtocol,
-                        &BlockIoProtocol,
-                        NULL,
-                        &BufferSize,
-                        BlockIoBuffer
-                        );
+            BS->LocateHandle,
+            5,
+            ByProtocol,
+            &BlockIoProtocol,
+            NULL,
+            &BufferSize,
+            BlockIoBuffer
+        );
 
     }
 
@@ -158,7 +163,7 @@ LibLocateHandleByDiskSignature (
     }
 
     //
-    // If there was an error or there are no device handles that support 
+    // If there was an error or there are no device handles that support
     // the BLOCK_IO Protocol, then return.
     //
 
@@ -176,15 +181,26 @@ LibLocateHandleByDiskSignature (
     *NoHandles = 0;
 
     for(Index=0;Index<NoBlockIoHandles;Index++) {
-
+#if USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
         Status = uefi_call_wrapper(
-				     BS->HandleProtocol, 
-					3,
-				     BlockIoBuffer[Index], 
-                                     &DevicePathProtocol, 
-                                     (VOID*)&DevicePath
-                                     );
-
+            BS->HandleProtocol,
+            3,
+            BlockIoBuffer[Index],
+            &DevicePathProtocol,
+            (VOID*)&DevicePath
+        );
+#else
+        Status = uefi_call_wrapper(
+            BS->OpenProtocol,
+            6,
+            BlockIoBuffer[Index],
+            &DevicePathProtocol,
+            (VOID*)&DevicePath,
+            NULL,
+            NULL,
+            EFI_OPEN_PROTOCOL_GET_PROTOCOL
+        );
+#endif
         //
         // Search DevicePath for a Hard Drive Media Device Path node.
         // If one is found, then see if it matches the signature that was
@@ -203,7 +219,7 @@ LibLocateHandleByDiskSignature (
 
             //
             // Check for end of device path type
-            //    
+            //
 
             for (; ;) {
 
@@ -308,11 +324,14 @@ LibOpenRoot (
     //
     // File the file system interface to the device
     //
-
+#if USE_EFI_100_CALL_WRAPPER_HANDLE_PROTOCOL
     Status = uefi_call_wrapper(BS->HandleProtocol, 3, DeviceHandle, &FileSystemProtocol, (VOID*)&Volume);
-
+#else
+    Status = uefi_call_wrapper(BS->OpenProtocol, 6, DeviceHandle, &FileSystemProtocol, (VOID*)&Volume,
+        NULL, NULL, EFI_OPEN_PROTOCOL_GET_PROTOCOL);
+#endif
     //
-    // Open the root directory of the volume 
+    // Open the root directory of the volume
     //
 
     if (!EFI_ERROR(Status)) {
@@ -361,7 +380,7 @@ LibFileInfo (
     return Buffer;
 }
 
-    
+
 EFI_FILE_SYSTEM_INFO *
 LibFileSystemInfo (
     IN EFI_FILE_HANDLE      FHand
@@ -432,7 +451,7 @@ LibFileSystemVolumeLabelInfo (
     return Buffer;
 }
 
-    
+
 
 EFI_STATUS
 LibInstallProtocolInterfaces (
@@ -450,7 +469,7 @@ LibInstallProtocolInterfaces (
 
     //
     // Syncronize with notifcations
-    // 
+    //
 
     OldTpl = uefi_call_wrapper(BS->RaiseTPL, 1, TPL_NOTIFY);
     OldHandle = *Handle;
@@ -504,7 +523,7 @@ LibInstallProtocolInterfaces (
             uefi_call_wrapper(BS->UninstallProtocolInterface, 3, *Handle, Protocol, Interface);
 
             Index -= 1;
-        }        
+        }
 
         *Handle = OldHandle;
         va_end (args);
@@ -530,7 +549,7 @@ LibUninstallProtocolInterfaces (
     EFI_GUID        *Protocol;
     VOID            *Interface;
 
-    
+
     va_start (args, Handle);
     for (; ;) {
 
@@ -555,7 +574,7 @@ LibUninstallProtocolInterfaces (
         }
     }
     va_end (args);
-}    
+}
 
 
 EFI_STATUS
@@ -573,7 +592,7 @@ LibReinstallProtocolInterfaces (
 
     //
     // Syncronize with notifcations
-    // 
+    //
 
     OldTpl = uefi_call_wrapper(BS->RaiseTPL, 1, TPL_NOTIFY);
 
