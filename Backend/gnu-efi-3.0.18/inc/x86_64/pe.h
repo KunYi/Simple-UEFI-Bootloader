@@ -98,12 +98,15 @@ typedef struct _IMAGE_FILE_HEADER {
 #define IMAGE_FILE_MACHINE_R3000             0x162   // MIPS little-endian, 0540 big-endian
 #define IMAGE_FILE_MACHINE_R4000             0x166   // MIPS little-endian
 #define IMAGE_FILE_MACHINE_ALPHA             0x184   // Alpha_AXP
-#define IMAGE_FILE_MACHINE_ARMTHUMB_MIXED    0x1c2   // Arm/Thumb
+#define IMAGE_FILE_MACHINE_ARMTHUMB_MIXED    0x1c2   // Arm/Thumb little-endian
+#define IMAGE_FILE_MACHINE_ARMTHUMB2         0x1c4   // ARM/Thumb2 little-endian
 #define IMAGE_FILE_MACHINE_POWERPC           0x1F0   // IBM PowerPC Little-Endian
 #define IMAGE_FILE_MACHINE_IA64              0x200   // IA-64
 #define IMAGE_FILE_MACHINE_TAHOE             0x7cc   // Intel EM machine
 #define IMAGE_FILE_MACHINE_EBC               0xebc   // EFI Byte Code
 #define IMAGE_FILE_MACHINE_X64               0x8664  // x86_64
+#define IMAGE_FILE_MACHINE_AARCH64           0xaa64  // ARM AARCH64 little-endian
+
 //
 // Directory format.
 //
