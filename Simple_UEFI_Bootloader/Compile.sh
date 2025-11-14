@@ -30,7 +30,7 @@ perl -pi -e 's/\r\n/\n/g' h_files.txt
 
 CurDir=$PWD
 GCC_FOLDER_NAME=/usr
-EFI_FOLDER_NAME=gnu-efi-3.0.9
+EFI_FOLDER_NAME=gnu-efi-3.0.18
 BINUTILS_FOLDER_NAME=/usr
 LinkerScript="$EFI_FOLDER_NAME/gnuefi/elf_x86_64_efi.lds"
 
