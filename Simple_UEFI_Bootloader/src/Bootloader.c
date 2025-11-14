@@ -140,6 +140,8 @@
 
 #include "Bootloader.h"
 
+#define efi_main _entry // Rename efi_main to _entry for GNU-EFI compatibility
+
 STATIC CONST CHAR16 AppleFirmwareVendor[6] = L"Apple";
 UINT8 IsApple = 0;
 
