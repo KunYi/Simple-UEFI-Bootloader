@@ -67,6 +67,7 @@ extern "C" {
 #include "efidevp.h"
 #include "efipciio.h"
 #include "efiprot.h"
+#include "ConsoleControl.h" // Added
 #include "eficon.h"
 #include "eficonex.h"
 #include "efiser.h"

@@ -110,8 +110,8 @@ SetMem (
 
 VOID EFIAPI
 CopyMem (
-    IN VOID     *Dest,
-    IN VOID     *Src,
+    IN VOID           *Dest,
+    IN CONST VOID     *Src,
     IN UINTN    len
     )
 {

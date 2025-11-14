@@ -59,6 +59,9 @@ extern EFI_BOOT_SERVICES        *BS;
 extern EFI_RUNTIME_SERVICES     *RT;
 #define gRT                      RT
 
+extern EFI_GUID gEfiConsoleControlProtocolGuid;
+#define ConsoleControlProtocol gEfiConsoleControlProtocolGuid
+
 extern EFI_GUID gEfiDevicePathProtocolGuid;
 #define DevicePathProtocol gEfiDevicePathProtocolGuid
 extern EFI_GUID gEfiDevicePathToTextProtocolGuid;
@@ -402,8 +405,8 @@ SetMem (
 
 VOID EFIAPI
 CopyMem (
-    IN VOID     *Dest,
-    IN VOID     *Src,
+    IN VOID           *Dest,
+    IN CONST VOID     *Src,
     IN UINTN    len
     );
 
